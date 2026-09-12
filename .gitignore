@@ -1,0 +1,25 @@
+# Environment & Secrets
+.env
+*.env
+
+# Python Cache & Virtual Environments
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+env/
+ENV/
+
+# Database
+instance/
+*.db
+*.sqlite3
+
+# IDE / Editor Files
+.vscode/
+.idea/
+*.swp
+
+# OS Generated Files
+.DS_Store
+Thumbs.db
