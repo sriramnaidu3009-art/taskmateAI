@@ -2,119 +2,66 @@
 {% block title %}Track task · Taskmate AI{% endblock %}
 
 {% block content %}
-<div class="page-head">
-    <a href="{{ url_for('matches') }}" class="back">← Back to matches</a>
-    <div class="eyebrow">YOUR TASK IS {{ status|upper }}</div>
-    <h1>One step closer to done.</h1>
-    <p>{{ task.title }} · {{ task.location }}</p>
+<div class="tracker-container">
+  <h2>Task Status: {{ status }}</h2>
+  <div class="worker-details">
+    <h3>Assigned Worker: {{ worker.name }}</h3>
+    <p>Role: {{ worker.role }}</p>
+    <p>Rate: ₹{{ worker.rate }}</p>
+  </div>
+
+  <div class="task-details">
+    <h4>Task: {{ task.title }}</h4>
+    <p>{{ task.description }}</p>
+  </div>
+
+  <!-- Payment Action -->
+  <div class="payment-section">
+    <button onclick="payNow({{ worker.rate * 100 }})" class="btn-primary">
+      Pay ₹{{ worker.rate }} Now
+    </button>
+  </div>
 </div>
 
-<section class="tracker-layout">
-    <div class="tracker-card">
-        <div class="assigned">
-            <div class="avatar large" style="background:{{ worker.color }}">{{ worker.initials }}</div>
-            <div>
-                <span class="label">YOUR TASKMATE</span>
-                <h2>{{ worker.name }}</h2>
-                <p>{{ worker.role }} · ★ {{ worker.rating }}</p>
-            </div>
-            <span class="status">{{ status }}</span>
-        </div>
-
-        <div class="timeline">
-            <div class="done">
-                <i>✓</i>
-                <div>
-                    <b>Task requested</b>
-                    <small>Your task was analysed and shared.</small>
-                </div>
-            </div>
-            <div class="{{ 'done' if status in ['Assigned', 'In progress', 'Completed'] else '' }}">
-                <i>{% if status in ['Assigned', 'In progress', 'Completed'] %}✓{% else %}2{% endif %}</i>
-                <div>
-                    <b>Worker assigned</b>
-                    <small>{{ worker.name }} has been selected.</small>
-                </div>
-            </div>
-            <div class="{{ 'done' if status in ['In progress', 'Completed'] else '' }}">
-                <i>{% if status in ['In progress', 'Completed'] %}✓{% else %}3{% endif %}</i>
-                <div>
-                    <b>Work in progress</b>
-                    <small>Your worker is on the job.</small>
-                </div>
-            </div>
-            <div class="{{ 'done' if status == 'Completed' else '' }}">
-                <i>{% if status == 'Completed' %}✓{% else %}4{% endif %}</i>
-                <div>
-                    <b>Task complete</b>
-                    <small>Rate your experience when finished.</small>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <aside class="actions">
-        <!-- Razorpay Payment Control -->
-        <span class="label">PAYMENT CONTROL</span>
-        <h3>Confirm Booking</h3>
-        <p style="font-size: 0.9rem; color: #666; margin-bottom: 12px;">Pay the booking fee to confirm {{ worker.name }}.</p>
-        <button id="pay-button" class="button primary" style="width: 100%; margin-bottom: 20px; background-color: #1d7a68;">
-            Pay Booking Fee (₹500)
-        </button>
-
-        <span class="label">DEMO CONTROLS</span>
-        <h3>Update task status</h3>
-        <form method="post">
-            <button name="status" value="In progress" class="button outline">Start work</button>
-            <button name="status" value="Completed" class="button primary">Mark complete</button>
-        </form>
-        <form method="post" action="{{ url_for('reset') }}">
-            <button class="text-button">Start another task</button>
-        </form>
-    </aside>
-</section>
-
-<!-- Razorpay JavaScript SDK -->
+<!-- Razorpay Integration Script -->
 <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
-
 <script>
-document.getElementById('pay-button').onclick = async function (e) {
-    e.preventDefault();
+  const razorpayKey = "{{ razorpay_key }}";
 
-    // 1. Send request to Flask backend to create an order
-    const response = await fetch('/create-order', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ amount: 50000 }) // Amount in paise (₹500)
-    });
-    const order = await response.json();
-
-    if (order.error) {
-        alert("Error creating order: " + order.error);
-        return;
-    }
-
-    // 2. Configure the Razorpay Modal
-    const options = {
-        "key": "{{ razorpay_key }}",
-        "amount": order.amount,
-        "currency": order.currency,
-        "name": "Taskmate AI",
-        "description": "Task Booking Fee",
-        "order_id": order.id,
-        "handler": async function (response) {
-            // 3. Send payment response to backend for signature verification
-            const verifyRes = await fetch('/verify-payment', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(response)
-            });
-            const result = await verifyRes.json();
-            alert(result.message);
+  function payNow(amountInPaise) {
+    fetch("/create-order", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ amount: amountInPaise })
+    })
+    .then(res => res.json())
+    .then(order => {
+      const options = {
+        key: razorpayKey,
+        amount: order.amount,
+        currency: "INR",
+        name: "TaskMate AI",
+        description: "Service Payment",
+        order_id: order.id,
+        handler: function (response) {
+          fetch("/verify-payment", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(response)
+          })
+          .then(res => res.json())
+          .then(data => {
+            alert(data.message);
+            if (data.status === "success") {
+              window.location.reload();
+            }
+          });
         }
-    };
-    const rzp = new Razorpay(options);
-    rzp.open();
-};
+      };
+      const rzp = new Razorpay(options);
+      rzp.open();
+    })
+    .catch(error => console.error("Error creating order:", error));
+  }
 </script>
 {% endblock %}

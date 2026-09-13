@@ -1,0 +1,39 @@
+{% extends 'base.html' %}
+{% block title %}Login · Taskmate AI{% endblock %}
+
+{% block content %}
+<div class="auth-container" style="max-width: 400px; margin: 3rem auto; padding: 2rem; border: 1px solid #e0e0e0; border-radius: 12px; background: #fff;">
+  <h2 style="margin-bottom: 1.5rem;">Log in to Taskmate AI</h2>
+
+  <!-- Display error messages (e.g. wrong password or invalid user) -->
+  {% with messages = get_flashed_messages() %}
+    {% if messages %}
+      <div class="flash-messages" style="margin-bottom: 1rem;">
+        {% for message in messages %}
+          <p style="color: #d9534f; background: #fdf7f7; padding: 8px 12px; border-radius: 6px; font-size: 0.9rem;">{{ message }}</p>
+        {% endfor %}
+      </div>
+    {% endif %}
+  {% endwith %}
+
+  <form method="POST" action="{{ url_for('login') }}">
+    <div style="margin-bottom: 1rem;">
+      <label for="email" style="display: block; margin-bottom: 0.3rem; font-weight: 500;">Email address</label>
+      <input type="email" id="email" name="email" required placeholder="name@example.com" style="width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 6px;">
+    </div>
+    
+    <div style="margin-bottom: 1.5rem;">
+      <label for="password" style="display: block; margin-bottom: 0.3rem; font-weight: 500;">Password</label>
+      <input type="password" id="password" name="password" required placeholder="••••••••" style="width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 6px;">
+    </div>
+
+    <button type="submit" class="button" style="width: 100%; padding: 10px; background: #1d7a68; color: white; border: none; border-radius: 6px; font-weight: bold; cursor: pointer;">
+      Log In
+    </button>
+  </form>
+
+  <p style="margin-top: 1.5rem; text-align: center; color: #666; font-size: 0.9rem;">
+    Don't have an account? <a href="{{ url_for('register') }}" style="color: #1d7a68; font-weight: bold;">Register here</a>
+  </p>
+</div>
+{% endblock %}

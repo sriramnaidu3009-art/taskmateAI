@@ -23,3 +23,5 @@ instance/
 # OS Generated Files
 .DS_Store
 Thumbs.db
+# firebase-key secret key
+firebase-key.json

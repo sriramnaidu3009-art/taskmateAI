@@ -1,24 +1,10 @@
 from __future__ import annotations
 
 import os
-from flask import Flask, render_template, request, session, redirect, url_for, jsonify
-import razorpay
+import random
 from dotenv import load_dotenv
-
-# 1. Load environment variables from .env file
-load_dotenv()
-
-# 2. Fetch the Razorpay keys
-RAZORPAY_KEY_ID = os.getenv("RAZORPAY_KEY_ID")
-RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET")
-
-# 3. Initialize Flask App & Razorpay Client
-app = Flask(__name__)
-app.secret_key = os.getenv("SECRET_KEY", "default-fallback-key")
-
-razorpay_client = razorpay.Client(auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET))
-
-# ... rest of your routes below
+import firebase_admin
+from firebase_admin import credentials, firestore
 from flask import (
     Flask,
     flash,
@@ -37,24 +23,61 @@ from flask_login import (
     logout_user,
     current_user,
 )
+from flask_mail import Mail, Message 
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
 import razorpay
 
-# Initialize App & Config
+# 1. Load Environment Variables
+load_dotenv()
+
+# 2. Initialize Single Flask App & Config
 app = Flask(__name__)
-app.secret_key = "taskmate-demo-change-this-before-deploying"
+
+# Mail Setup
+app.config["MAIL_SERVER"] = "smtp.gmail.com"
+app.config["MAIL_PORT"] = 587
+app.config["MAIL_USE_TLS"] = True
+app.config["MAIL_USERNAME"] = os.getenv("MAIL_USERNAME")
+app.config["MAIL_PASSWORD"] = os.getenv("MAIL_PASSWORD")
+app.config["MAIL_DEFAULT_SENDER"] = os.getenv("MAIL_USERNAME")
+
+# TOGGLE THIS FOR LOCAL TESTING:
+# Set to True to skip Gmail sending entirely and print OTP to terminal
+# Set to False once your Google App Password is generated
+app.config["MAIL_SUPPRESS_SEND"] = os.getenv("MAIL_SUPPRESS_SEND", "False").lower() in ("true", "1", "t")
+
+mail = Mail(app)
+
+app.secret_key = os.getenv("SECRET_KEY", "taskmate-demo-change-this-before-deploying")
 app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///users.db"
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
-# Initialize Database & Auth Manager
+# 3. Initialize Firebase Admin SDK safely
+base_dir = os.path.dirname(os.path.abspath(__file__))
+key_path = os.path.join(base_dir, "firebase-key.json")
+
+db_firestore = None
+if os.path.exists(key_path):
+    try:
+        if not firebase_admin._apps:
+            cred = credentials.Certificate(key_path)
+            firebase_admin.initialize_app(cred)
+        db_firestore = firestore.client()
+        print("Firebase initialized successfully.")
+    except Exception as e:
+        print(f"Firebase initialization failed: {e}")
+else:
+    print("WARNING: firebase-key.json not found in root directory!")
+
+# 4. Initialize SQLAlchemy & Flask-Login
 db = SQLAlchemy(app)
 login_manager = LoginManager(app)
 login_manager.login_view = "login"
 
-# assigning the razorpay api key and secret key to the variables 
-RAZORPAY_KEY_ID = "rzp_test_Tb45QGTveeOPUS"
-RAZORPAY_KEY_SECRET = "0UYm0h6exVHcp2KrewHRZAgz"
+# 5. Initialize Razorpay Client
+RAZORPAY_KEY_ID = os.getenv("RAZORPAY_KEY_ID", "rzp_test_TbCyUbsFbZ8aot")
+RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET", "RDmlYXPaWNumvI1NWcId6Aos")
 razorpay_client = razorpay.Client(auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET))
 
 
@@ -243,7 +266,110 @@ def ranked_workers(analysis: dict) -> list[dict]:
     return sorted(ranked, key=lambda item: item["score"], reverse=True)
 
 
-# Core Routes
+def send_otp(email, otp):
+    msg = Message(
+        "Your Taskmate AI Verification Code",
+        recipients=[email],
+    )
+    msg.body = f"Your 6-digit verification code is: {otp}"
+    mail.send(msg)
+
+
+# Authentication Routes
+@app.route("/register", methods=["GET", "POST"])
+def register():
+    if request.method == "POST":
+        email = request.form.get("email")
+        password = request.form.get("password")
+
+        if User.query.filter_by(email=email).first():
+            flash("Email address already exists.")
+            return redirect(url_for("register"))
+
+        otp = str(random.randint(100000, 999999))
+        session["temp_user"] = {
+            "email": email,
+            "password": generate_password_hash(password, method="scrypt"),
+            "otp": otp,
+        }
+
+        try:
+            send_otp(email, otp)
+            # Log code to terminal as a fallback for local testing
+            print(f"\n==========================================")
+            print(f"[DEBUG] OTP Code for {email}: {otp}")
+            print(f"==========================================\n")
+            
+            flash("Verification code sent to your email!")
+            return redirect(url_for("verify"))
+        except Exception as e:
+            flash(f"Failed to send email: {e}")
+            return redirect(url_for("register"))
+
+    return render_template("register.html")
+
+
+@app.route("/verify", methods=["GET", "POST"])
+def verify():
+    temp_user = session.get("temp_user")
+    if not temp_user:
+        return redirect(url_for("register"))
+
+    if request.method == "POST":
+        user_code = request.form.get("otp")
+        if user_code == temp_user["otp"]:
+            new_user = User(
+                email=temp_user["email"], password=temp_user["password"]
+            )
+            db.session.add(new_user)
+            db.session.commit()
+            login_user(new_user)
+            session.pop("temp_user", None)
+            return redirect(url_for("home"))
+        else:
+            flash("Invalid verification code. Please try again.")
+
+    return render_template("verify.html")
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if request.method == "POST":
+        email = request.form.get("email")
+        password = request.form.get("password")
+
+        user = User.query.filter_by(email=email).first()
+        if not user or not check_password_hash(user.password, password):
+            flash("Invalid credentials, please try again.")
+            return redirect(url_for("login"))
+
+        login_user(user)
+        return redirect(url_for("home"))
+
+    return render_template("login.html")
+
+
+@app.route("/logout")
+@login_required
+def logout():
+    logout_user()
+    return redirect(url_for("home"))
+
+
+# Database Test Route
+@app.route("/api/test-db", methods=["GET", "POST"])
+def api_test_db():
+    try:
+        if not db_firestore:
+            return jsonify({"error": "Firebase instance not initialized."}), 500
+        doc_ref = db_firestore.collection("users").document("test_user")
+        doc_ref.set({"status": "Firebase connected successfully!"})
+        return jsonify({"message": "Data written to Firestore successfully!"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# Core Application Routes
 @app.route("/", methods=["GET", "POST"])
 def home():
     if request.method == "POST":
@@ -292,7 +418,7 @@ def tracker():
         task=session["task"],
         worker=session["assigned_worker"],
         status=session["status"],
-        razorpay_key=RAZORPAY_KEY_ID,   #razorpay key for payment integration
+        razorpay_key=RAZORPAY_KEY_ID,
     )
 
 
@@ -302,59 +428,10 @@ def reset():
     return redirect(url_for("home"))
 
 
-# User Auth Routes
-@app.route("/register", methods=["GET", "POST"])
-def register():
-    if request.method == "POST":
-        email = request.form.get("email")
-        password = request.form.get("password")
-
-        user = User.query.filter_by(email=email).first()
-        if user:
-            flash("Email address already exists.")
-            return redirect(url_for("register"))
-
-        hashed_password = generate_password_hash(password, method="scrypt")
-        new_user = User(email=email, password=hashed_password)
-
-        db.session.add(new_user)
-        db.session.commit()
-
-        login_user(new_user)
-        return redirect(url_for("home"))
-
-    return render_template("register.html")
-
-
-@app.route("/login", methods=["GET", "POST"])
-def login():
-    if request.method == "POST":
-        email = request.form.get("email")
-        password = request.form.get("password")
-
-        user = User.query.filter_by(email=email).first()
-        if not user or not check_password_hash(user.password, password):
-            flash("Invalid credentials, please try again.")
-            return redirect(url_for("login"))
-
-        login_user(user)
-        return redirect(url_for("home"))
-
-    return render_template("login.html")
-
-
-@app.route("/logout")
-@login_required
-def logout():
-    logout_user()
-    return redirect(url_for("home"))
-
-
 # Razorpay Integration Endpoints
 @app.route("/create-order", methods=["POST"])
 def create_order():
     try:
-        # Amount in paise (50000 paise = ₹500)
         data = request.get_json() or {}
         amount = data.get("amount", 50000)
 

@@ -1,5 +1,81 @@
-{% extends 'base.html' %}{% block title %}Your matches · Taskmate AI{% endblock %}{% block content %}
-<div class="page-head"><a href="{{ url_for('home') }}" class="back">← New task</a><div class="eyebrow">TASK ANALYSIS COMPLETE</div><h1>Here’s who can help.</h1><p>{{ task.title }} · {{ task.location }}</p></div>
-<section class="analysis-card"><div class="spark">✦</div><div><span class="label">TASKMATE AI INSIGHT</span><h2>{{ analysis.summary }}</h2><div class="chips">{% for skill in analysis.skills %}<span>{{ skill }}</span>{% endfor %}</div></div><div class="facts"><div><b>₹{{ analysis.price_min }}–{{ analysis.price_max }}</b><small>fair price range</small></div><div><b>{{ analysis.duration }}</b><small>estimated time</small></div><div><b>{{ analysis.urgency }}</b><small>urgency</small></div></div></section>
-<section class="content-grid"><div><h2>Best matches <span class="muted">ranked for you</span></h2>{% for worker in workers %}<article class="worker-card"><div class="avatar" style="background:{{ worker.color }}">{{ worker.initials }}</div><div class="worker-main"><div class="worker-title"><div><h3>{{ worker.name }}</h3><p>{{ worker.role }}</p></div><strong>{{ worker.score }}% match</strong></div><div class="worker-meta"><span>★ {{ worker.rating }} ({{ worker.jobs }} jobs)</span><span>⌖ {{ worker.distance }} km away</span><span>₹{{ worker.rate }}/hr</span></div><p class="reason">Matches {{ worker.skill_matches }}/{{ analysis.skills|length }} needed skills · Available today</p></div><form method="post" action="{{ url_for('assign', worker_id=worker.id) }}"><button class="button outline">Choose</button></form></article>{% endfor %}</div><aside class="plan"><span class="label">THE GAME PLAN</span><h3>What happens next</h3>{% for step in analysis.plan %}<div class="plan-step"><b>{{ loop.index }}</b><p>{{ step }}</p></div>{% endfor %}</aside></section>
+{% extends 'base.html' %}
+{% block title %}Your matches · Taskmate AI{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <a href="{{ url_for('home') }}" class="back">← New task</a>
+  <div class="eyebrow">TASK ANALYSIS COMPLETE</div>
+  <h1>Here’s who can help.</h1>
+  <p>{{ task.title }}{% if task.location %} · {{ task.location }}{% endif %}</p>
+</div>
+
+<section class="analysis-card">
+  <div class="spark">✦</div>
+  <div>
+    <span class="label">TASKMATE AI INSIGHT</span>
+    <h2>{{ analysis.summary }}</h2>
+    <div class="chips">
+      {% for skill in analysis.skills %}
+        <span>{{ skill }}</span>
+      {% endfor %}
+    </div>
+  </div>
+  <div class="facts">
+    <div>
+      <b>₹{{ analysis.price_min }}–{{ analysis.price_max }}</b>
+      <small>fair price range</small>
+    </div>
+    <div>
+      <b>{{ analysis.duration }}</b>
+      <small>estimated time</small>
+    </div>
+    <div>
+      <b>{{ analysis.urgency }}</b>
+      <small>urgency</small>
+    </div>
+  </div>
+</section>
+
+<section class="content-grid">
+  <div>
+    <h2>Best matches <span class="muted">ranked for you</span></h2>
+    {% for worker in workers %}
+      <article class="worker-card">
+        <div class="avatar" style="background:{{ worker.color }}">{{ worker.initials }}</div>
+        <div class="worker-main">
+          <div class="worker-title">
+            <div>
+              <h3>{{ worker.name }}</h3>
+              <p>{{ worker.role }}</p>
+            </div>
+            <strong>{{ worker.score }}% match</strong>
+          </div>
+          <div class="worker-meta">
+            <span>★ {{ worker.rating }} ({{ worker.jobs }} jobs)</span>
+            <span>⌖ {{ worker.distance }} km away</span>
+            <span>₹{{ worker.rate }}/hr</span>
+          </div>
+          <p class="reason">
+            Matches {{ worker.skill_matches }}/{{ analysis.skills|length }} needed skills · 
+            {% if worker.available %}Available today{% else %}Available tomorrow{% endif %}
+          </p>
+        </div>
+        <form method="POST" action="{{ url_for('assign', worker_id=worker.id) }}">
+          <button type="submit" class="button outline">Choose</button>
+        </form>
+      </article>
+    {% endfor %}
+  </div>
+
+  <aside class="plan">
+    <span class="label">THE GAME PLAN</span>
+    <h3>What happens next</h3>
+    {% for step in analysis.plan %}
+      <div class="plan-step">
+        <b>{{ loop.index }}</b>
+        <p>{{ step }}</p>
+      </div>
+    {% endfor %}
+  </aside>
+</section>
 {% endblock %}

@@ -1,14 +1,39 @@
-{% extends 'base.html' %}{% block content %}
+{% extends 'base.html' %}
+{% block title %}Home · Taskmate AI{% endblock %}
+
+{% block content %}
 <section class="hero">
   <div class="eyebrow">YOUR NEIGHBOURHOOD, CONNECTED</div>
   <h1>The right person<br>for every task.</h1>
   <p class="intro">Tell us what you need. Taskmate AI understands the job, estimates the work, and finds skilled people nearby.</p>
+  
   <form class="task-form" method="post">
-    <label>What do you need help with?<input name="title" required placeholder="e.g. Fix my ceiling fan"></label>
-    <label>Tell us a little more<textarea name="description" required placeholder="The fan is making noise and stopped spinning this morning."></textarea></label>
-    <div class="form-row"><label>Your location<input name="location" required placeholder="e.g. Indiranagar, Bengaluru"></label><label>Budget (optional)<input name="budget" placeholder="e.g. ₹500"></label></div>
-    <button class="button primary" type="submit">Find my taskmate <span>→</span></button>
+    <label>What do you need help with?
+      <input name="title" required placeholder="e.g. Fix my ceiling fan">
+    </label>
+    
+    <label>Tell us a little more
+      <textarea name="description" required placeholder="The fan is making noise and stopped spinning this morning."></textarea>
+    </label>
+    
+    <div class="form-row">
+      <label>Your location
+        <input name="location" required placeholder="e.g. Indiranagar, Bengaluru">
+      </label>
+      <label>Budget (optional)
+        <input name="budget" placeholder="e.g. ₹500">
+      </label>
+    </div>
+    
+    <div style="margin-top: 1rem;">
+      <button class="button primary" type="submit">Find my taskmate <span>→</span></button>
+    </div>
   </form>
 </section>
-<section class="how"><div><i>01</i><h3>Describe it</h3><p>Use everyday language. No technical knowledge needed.</p></div><div><i>02</i><h3>AI makes a plan</h3><p>Get a clear scope, estimate, and the skills you need.</p></div><div><i>03</i><h3>Meet your match</h3><p>Choose a trusted local worker with confidence.</p></div></section>
+
+<section class="how">
+  <div><i>01</i><h3>Describe it</h3><p>Use everyday language. No technical knowledge needed.</p></div>
+  <div><i>02</i><h3>AI makes a plan</h3><p>Get a clear scope, estimate, and the skills you need.</p></div>
+  <div><i>03</i><h3>Meet your match</h3><p>Choose a trusted local worker with confidence.</p></div>
+</section>
 {% endblock %}
