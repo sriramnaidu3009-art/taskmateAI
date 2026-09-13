@@ -272,7 +272,11 @@ def send_otp(email, otp):
         recipients=[email],
     )
     msg.body = f"Your 6-digit verification code is: {otp}"
-    mail.send(msg)
+    try:
+        mail.send(msg)
+    except Exception as e:
+        print(f"[MAIL ERROR / RENDER BLOCK]: {e}")
+        # Allows testing/registering even if outbound SMTP ports are blocked by host
 
 
 # Authentication Routes
@@ -295,15 +299,15 @@ def register():
 
         try:
             send_otp(email, otp)
-            # Log code to terminal as a fallback for local testing
+            # Always log code to terminal as a reliable fallback
             print(f"\n==========================================")
             print(f"[DEBUG] OTP Code for {email}: {otp}")
             print(f"==========================================\n")
             
-            flash("Verification code sent to your email!")
+            flash("Verification code generated! Check terminal or email.")
             return redirect(url_for("verify"))
         except Exception as e:
-            flash(f"Failed to send email: {e}")
+            flash(f"Registration error: {e}")
             return redirect(url_for("register"))
 
     return render_template("register.html")
