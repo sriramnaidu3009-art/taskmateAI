@@ -37,7 +37,7 @@ app = Flask(__name__)
 
 # Gemini Setup
 api_key = os.getenv("GEMINI_API_KEY")
-client = genai.Client(api_key=api_key)
+client = genai.Client(api_key=api_key) if api_key else None
 
 # Flask Mail Setup
 app.config["MAIL_SERVER"] = "smtp.gmail.com"
@@ -272,6 +272,9 @@ def home():
 @app.route("/api/chat", methods=["POST"])
 def chat():
     try:
+        if not client:
+            return jsonify({"error": "Gemini API Client not configured."}), 500
+
         data = request.get_json()
         prompt = data.get("prompt", "").strip()
 
@@ -284,7 +287,6 @@ def chat():
                 contents=prompt,
             )
         except Exception:
-            # Automatic fallback to Lite model if high demand (503) occurs
             response = client.models.generate_content(
                 model="gemini-2.0-flash-lite",
                 contents=prompt,
@@ -395,7 +397,7 @@ def matches():
         return redirect(url_for("home"))
     return render_template(
         "matches.html",
-        task=session["task"],
+        task=session.get("task", {}),
         analysis=analysis,
         workers=ranked_workers(analysis),
     )
@@ -413,15 +415,27 @@ def assign(worker_id: int):
 
 @app.route("/tracker", methods=["GET", "POST"])
 def tracker():
-    if "assigned_worker" not in session:
-        return redirect(url_for("home"))
+    # Safely retrieve task or set default fallback object
+    task = session.get("task", {
+        "title": "Fix Ceiling Fan",
+        "description": "Fan is making noise and stopped spinning.",
+        "location": "Meerpet, Hyderabad",
+        "budget": "450"
+    })
+    
+    # Safely retrieve worker or assign default
+    worker = session.get("assigned_worker", WORKERS[0])
+    
     if request.method == "POST":
-        session["status"] = request.form.get("status", session["status"])
+        session["status"] = request.form.get("status", session.get("status", "Worker On The Way"))
+        
+    status = session.get("status", "Worker On The Way")
+
     return render_template(
         "tracker.html",
-        task=session["task"],
-        worker=session["assigned_worker"],
-        status=session["status"],
+        task=task,
+        worker=worker,
+        status=status,
         razorpay_key=RAZORPAY_KEY_ID,
     )
 
@@ -464,6 +478,66 @@ def verify_payment():
             400,
         )
 
+
+# --- Worker Application Routes ---
+
+@app.route("/worker/dashboard")
+def worker_dashboard():
+    # Retrieve assigned job if accepted
+    active_job = session.get("task") if session.get("assigned_worker") else None
+    current_status = session.get("status", "Worker On The Way")
+
+    pending_tasks = [
+        {
+            "id": 101,
+            "title": session.get("task", {}).get("title", "Fix Ceiling Fan"),
+            "description": session.get("task", {}).get("description", "Fan making high noise"),
+            "location": session.get("task", {}).get("location", "Meerpet, Hyderabad"),
+            "budget": session.get("task", {}).get("budget", "450"),
+            "urgency": "High",
+            "time_posted": "10 mins ago"
+        }
+    ]
+    return render_template(
+        "worker_dashboard.html", 
+        tasks=pending_tasks, 
+        active_job=active_job, 
+        current_status=current_status
+    )
+
+
+@app.route("/api/worker/accept-task/<int:task_id>", methods=["POST"])
+def worker_accept_task(task_id: int):
+    # Assign default worker
+    worker = WORKERS[0]
+    
+    # Set task defaults if session does not have active task
+    if "task" not in session:
+        session["task"] = {
+            "title": "Fix Ceiling Fan",
+            "description": "Fan making high noise and stopped spinning.",
+            "location": "Meerpet, Hyderabad",
+            "budget": "450"
+        }
+
+    # Update global task session status
+    session["assigned_worker"] = worker
+    session["status"] = "Worker On The Way"
+    
+    return jsonify({
+        "status": "success",
+        "message": f"Task #{task_id} accepted!",
+        "redirect": url_for("tracker")
+    })
+
+
+@app.route("/api/worker/update-status", methods=["POST"])
+def worker_update_status():
+    data = request.get_json() or {}
+    new_status = data.get("status")
+    if new_status:
+        session["status"] = new_status
+    return jsonify({"status": "success", "current_status": session["status"]})
 
 # --- Database Creation & Entry Point ---
 with app.app_context():
