@@ -22,8 +22,8 @@
         <span>{{ current_user.email }}</span>
         <a href="{{ url_for('logout') }}">Logout</a>
       {% else %}
-        <a href="{{ url_for('login') }}">Login</a>
-        <a href="{{ url_for('register') }}">Register</a>
+        <a href="/login">Login</a>
+        <a href="/register">Register</a>
       {% endif %}
     </div>
   </nav>

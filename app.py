@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import os
 import random
-from dotenv import load_dotenv
 import firebase_admin
+import razorpay
 from firebase_admin import credentials, firestore
 from flask import (
     Flask,
@@ -23,28 +23,29 @@ from flask_login import (
     logout_user,
     current_user,
 )
-from flask_mail import Mail, Message 
+from flask_mail import Mail, Message
 from flask_sqlalchemy import SQLAlchemy
+from dotenv import load_dotenv
+from google import genai
 from werkzeug.security import generate_password_hash, check_password_hash
-import razorpay
 
 # 1. Load Environment Variables
 load_dotenv()
 
-# 2. Initialize Single Flask App & Config
+# 2. Initialize Flask App & Configurations
 app = Flask(__name__)
 
-# Mail Setup
+# Gemini Setup
+api_key = os.getenv("GEMINI_API_KEY")
+client = genai.Client(api_key=api_key)
+
+# Flask Mail Setup
 app.config["MAIL_SERVER"] = "smtp.gmail.com"
 app.config["MAIL_PORT"] = 587
 app.config["MAIL_USE_TLS"] = True
 app.config["MAIL_USERNAME"] = os.getenv("MAIL_USERNAME")
 app.config["MAIL_PASSWORD"] = os.getenv("MAIL_PASSWORD")
 app.config["MAIL_DEFAULT_SENDER"] = os.getenv("MAIL_USERNAME")
-
-# TOGGLE THIS FOR LOCAL TESTING:
-# Set to True to skip Gmail sending entirely and print OTP to terminal
-# Set to False once your Google App Password is generated
 app.config["MAIL_SUPPRESS_SEND"] = os.getenv("MAIL_SUPPRESS_SEND", "False").lower() in ("true", "1", "t")
 
 mail = Mail(app)
@@ -53,7 +54,7 @@ app.secret_key = os.getenv("SECRET_KEY", "taskmate-demo-change-this-before-deplo
 app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///users.db"
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
-# 3. Initialize Firebase Admin SDK safely
+# 3. Initialize Firebase Admin SDK
 base_dir = os.path.dirname(os.path.abspath(__file__))
 key_path = os.path.join(base_dir, "firebase-key.json")
 
@@ -76,12 +77,12 @@ login_manager = LoginManager(app)
 login_manager.login_view = "login"
 
 # 5. Initialize Razorpay Client
-RAZORPAY_KEY_ID = os.getenv("RAZORPAY_KEY_ID", "rzp_test_TbCyUbsFbZ8aot")
-RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET", "RDmlYXPaWNumvI1NWcId6Aos")
+RAZORPAY_KEY_ID = os.getenv("RAZORPAY_KEY_ID", "rzp_test_Ten1DAFnOCg6e4")
+RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET", "3EBlTp0mCvV0wqxp462JFJwV")
 razorpay_client = razorpay.Client(auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET))
 
 
-# User Database Model
+# --- Database Models ---
 class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     email = db.Column(db.String(100), unique=True, nullable=False)
@@ -93,19 +94,14 @@ def load_user(user_id):
     return User.query.get(int(user_id))
 
 
-# Static Data
+# --- Static Data ---
 WORKERS = [
     {
         "id": 1,
         "name": "Arjun Kumar",
         "initials": "AK",
         "role": "Licensed Electrician",
-        "skills": [
-            "electrician",
-            "ceiling fan repair",
-            "wiring",
-            "electrical safety",
-        ],
+        "skills": ["electrician", "ceiling fan repair", "wiring", "electrical safety"],
         "rating": 4.9,
         "jobs": 128,
         "distance": 1.2,
@@ -131,12 +127,7 @@ WORKERS = [
         "name": "Mohammed Rafi",
         "initials": "MR",
         "role": "Electrician",
-        "skills": [
-            "electrician",
-            "wiring",
-            "switch repair",
-            "electrical safety",
-        ],
+        "skills": ["electrician", "wiring", "switch repair", "electrical safety"],
         "rating": 4.7,
         "jobs": 77,
         "distance": 3.4,
@@ -160,30 +151,18 @@ WORKERS = [
 ]
 
 KEYWORDS = {
-    "electrician": [
-        "fan",
-        "electric",
-        "wire",
-        "switch",
-        "light",
-        "power",
-        "socket",
-    ],
+    "electrician": ["fan", "electric", "wire", "switch", "light", "power", "socket"],
     "plumber": ["tap", "leak", "pipe", "drain", "water", "toilet"],
     "cleaner": ["clean", "cleaning", "dust", "wash"],
     "carpenter": ["wood", "door", "furniture", "shelf", "cabinet"],
 }
 
 
-# Helper Functions
+# --- Helper Functions ---
 def analyze_task(title: str, description: str) -> dict:
     text = f"{title} {description}".lower()
     category = next(
-        (
-            name
-            for name, words in KEYWORDS.items()
-            if any(word in text for word in words)
-        ),
+        (name for name, words in KEYWORDS.items() if any(word in text for word in words)),
         "home repair",
     )
     if category == "electrician":
@@ -218,9 +197,7 @@ def analyze_task(title: str, description: str) -> dict:
         )
     urgency = (
         "High"
-        if any(
-            word in text for word in ["urgent", "asap", "today", "immediately"]
-        )
+        if any(word in text for word in ["urgent", "asap", "today", "immediately"])
         else "Standard"
     )
     return {
@@ -259,9 +236,7 @@ def ranked_workers(analysis: dict) -> list[dict]:
         if overlap:
             item = worker.copy()
             item["score"] = score
-            item["skill_matches"] = len(
-                required.intersection(worker["skills"])
-            )
+            item["skill_matches"] = len(required.intersection(worker["skills"]))
             ranked.append(item)
     return sorted(ranked, key=lambda item: item["score"], reverse=True)
 
@@ -276,10 +251,52 @@ def send_otp(email, otp):
         mail.send(msg)
     except Exception as e:
         print(f"[MAIL ERROR / RENDER BLOCK]: {e}")
-        # Allows testing/registering even if outbound SMTP ports are blocked by host
 
 
-# Authentication Routes
+# --- Application Routes ---
+
+@app.route("/", methods=["GET", "POST"])
+def home():
+    if request.method == "POST":
+        task = {
+            key: request.form.get(key, "").strip()
+            for key in ("title", "description", "location", "budget")
+        }
+        analysis = analyze_task(task["title"], task["description"])
+        session["task"] = task
+        session["analysis"] = analysis
+        return redirect(url_for("matches"))
+    return render_template("home.html", razorpay_key=RAZORPAY_KEY_ID)
+
+
+@app.route("/api/chat", methods=["POST"])
+def chat():
+    try:
+        data = request.get_json()
+        prompt = data.get("prompt", "").strip()
+
+        if not prompt:
+            return jsonify({"error": "Empty prompt"}), 400
+
+        try:
+            response = client.models.generate_content(
+                model="gemini-3.5-flash-lite",
+                contents=prompt,
+            )
+        except Exception:
+            # Automatic fallback to Lite model if high demand (503) occurs
+            response = client.models.generate_content(
+                model="gemini-2.0-flash-lite",
+                contents=prompt,
+            )
+
+        return jsonify({"response": response.text})
+
+    except Exception as e:
+        print(f"\n[BACKEND ERROR]: {e}\n")
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/register", methods=["GET", "POST"])
 def register():
     if request.method == "POST":
@@ -299,11 +316,10 @@ def register():
 
         try:
             send_otp(email, otp)
-            # Always log code to terminal as a reliable fallback
             print(f"\n==========================================")
             print(f"[DEBUG] OTP Code for {email}: {otp}")
             print(f"==========================================\n")
-            
+
             flash("Verification code generated! Check terminal or email.")
             return redirect(url_for("verify"))
         except Exception as e:
@@ -360,7 +376,6 @@ def logout():
     return redirect(url_for("home"))
 
 
-# Database Test Route
 @app.route("/api/test-db", methods=["GET", "POST"])
 def api_test_db():
     try:
@@ -371,21 +386,6 @@ def api_test_db():
         return jsonify({"message": "Data written to Firestore successfully!"})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-
-
-# Core Application Routes
-@app.route("/", methods=["GET", "POST"])
-def home():
-    if request.method == "POST":
-        task = {
-            key: request.form.get(key, "").strip()
-            for key in ("title", "description", "location", "budget")
-        }
-        analysis = analyze_task(task["title"], task["description"])
-        session["task"] = task
-        session["analysis"] = analysis
-        return redirect(url_for("matches"))
-    return render_template("home.html", razorpay_key=RAZORPAY_KEY_ID)
 
 
 @app.route("/matches")
@@ -432,7 +432,6 @@ def reset():
     return redirect(url_for("home"))
 
 
-# Razorpay Integration Endpoints
 @app.route("/create-order", methods=["POST"])
 def create_order():
     try:
@@ -466,7 +465,7 @@ def verify_payment():
         )
 
 
-# Database Creation & Application Launch
+# --- Database Creation & Entry Point ---
 with app.app_context():
     db.create_all()
 

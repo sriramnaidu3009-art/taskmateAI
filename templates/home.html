@@ -36,4 +36,32 @@
   <div><i>02</i><h3>AI makes a plan</h3><p>Get a clear scope, estimate, and the skills you need.</p></div>
   <div><i>03</i><h3>Meet your match</h3><p>Choose a trusted local worker with confidence.</p></div>
 </section>
+
+<!-- Taskmate AI Assistant Section -->
+<div class="assistant-card">
+  <div class="chat-header">
+    <div class="ai-avatar">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9.27L8.91 8.26L12 2Z" />
+      </svg>
+    </div>
+    <h3>Taskmate AI Assistant</h3>
+  </div>
+
+  <!-- Animated Chat Output Box -->
+  <div id="chat-box">
+    <div class="message-row ai">
+      <div class="ai-avatar">✨</div>
+      <div class="bubble">Hello! I'm your Taskmate assistant. How can I help you with your task today?</div>
+    </div>
+  </div>
+
+  <!-- Input and Button Row -->
+  <div class="chat-input-row">
+    <input type="text" id="user-input" placeholder="Ask Taskmate AI anything..." onkeydown="if(event.key === 'Enter') sendPrompt()">
+    <button id="send-btn" class="button primary" onclick="sendPrompt()">Send</button>
+  </div>
+</div>
+
+<script src="{{ url_for('static', filename='script.js') }}"></script>
 {% endblock %}
