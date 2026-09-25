@@ -56,7 +56,7 @@
             <span>₹{{ worker.rate }}/hr</span>
           </div>
           <p class="reason">
-            Matches {{ worker.skill_matches }}/{{ analysis.skills|length }} needed skills · 
+            Matches {{ worker.skill_matches | default(1) }}/{{ analysis.skills|length }} needed skills ·
             {% if worker.available %}Available today{% else %}Available tomorrow{% endif %}
           </p>
         </div>

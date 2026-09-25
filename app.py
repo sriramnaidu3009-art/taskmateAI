@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 import os
 import random
+import time
 import firebase_admin
 import razorpay
 from firebase_admin import credentials, firestore
@@ -27,6 +29,7 @@ from flask_mail import Mail, Message
 from flask_sqlalchemy import SQLAlchemy
 from dotenv import load_dotenv
 from google import genai
+from google.genai import types
 from werkzeug.security import generate_password_hash, check_password_hash
 
 # 1. Load Environment Variables
@@ -155,90 +158,206 @@ KEYWORDS = {
     "plumber": ["tap", "leak", "pipe", "drain", "water", "toilet"],
     "cleaner": ["clean", "cleaning", "dust", "wash"],
     "carpenter": ["wood", "door", "furniture", "shelf", "cabinet"],
+    "caregiver": ["grandpa", "grandma", "elderly", "care", "look after", "patient", "nurse", "senior"],
 }
 
 
-# --- Helper Functions ---
+# --- Helper & AI Functions ---
+
 def analyze_task(title: str, description: str) -> dict:
+    prompt = f"""
+    You are an autonomous Task Dispatch AI Agent.
+    Analyze this service request:
+    Title: {title}
+    Description: {description}
+
+    Return ONLY a JSON object with no extra text or markdown formatting:
+    {{
+        "category": "Inferred Category (e.g. Caregiver / Senior Care, Electrical, Plumbing, etc.)",
+        "skills": ["Skill 1", "Skill 2", "Skill 3"],
+        "duration": "2–4 hours",
+        "price_min": 400,
+        "price_max": 900,
+        "urgency": "Standard",
+        "summary": "1 sentence task summary",
+        "plan": ["step 1", "step 2", "step 3"]
+    }}
+    """
+
+    if client:
+        max_retries = 3
+        delay = 1
+        for attempt in range(max_retries):
+            try:
+                response = client.models.generate_content(
+                    model="gemini-3.8-flash",
+                    contents=prompt,
+                )
+                clean_json = response.text.replace("```json", "").replace("```", "").strip()
+                return json.loads(clean_json)
+            except Exception as e:
+                print(f"[GEMINI ANALYZE ERROR Attempt {attempt + 1}]: {e}")
+                if attempt < max_retries - 1:
+                    time.sleep(delay)
+                    delay *= 2
+
+    # Rule-Based Fallback
     text = f"{title} {description}".lower()
     category = next(
         (name for name, words in KEYWORDS.items() if any(word in text for word in words)),
-        "home repair",
+        "General Service",
     )
-    if category == "electrician":
-        skills, duration, price = (
-            ["electrician", "ceiling fan repair", "electrical safety"],
-            "1–2 hours",
-            (350, 650),
-        )
-    elif category == "plumber":
-        skills, duration, price = (
-            ["plumber", "pipe repair", "leak detection"],
-            "1–3 hours",
-            (300, 800),
-        )
-    elif category == "cleaner":
-        skills, duration, price = (
-            ["cleaning", "home sanitation"],
-            "2–4 hours",
-            (400, 900),
-        )
-    elif category == "carpenter":
-        skills, duration, price = (
-            ["carpentry", "furniture repair"],
-            "2–4 hours",
-            (500, 1200),
-        )
-    else:
-        skills, duration, price = (
-            ["handyman", "home repair"],
-            "1–3 hours",
-            (350, 900),
-        )
-    urgency = (
-        "High"
-        if any(word in text for word in ["urgent", "asap", "today", "immediately"])
-        else "Standard"
-    )
+
     return {
         "category": category.title(),
-        "skills": skills,
-        "duration": duration,
-        "price_min": price[0],
-        "price_max": price[1],
-        "urgency": urgency,
-        "summary": f"{category.title()} support needed for: {title or 'your home task'}.",
+        "skills": [category.title(), "General Assistance", "Direct Support"],
+        "duration": "2–4 hours",
+        "price_min": 400,
+        "price_max": 1000,
+        "urgency": "High" if any(w in text for w in ["urgent", "asap", "today", "immediately"]) else "Standard",
+        "summary": f"Service request for: {title or 'Home Assistance'}.",
         "plan": [
-            "Review the issue and bring the right tools",
-            "Inspect and diagnose on arrival",
-            "Complete the repair and safety-check the work",
+            "Confirm service specifications and preferred schedule",
+            "Match request with a verified local service provider",
+            "Coordinate task details upon arrival",
         ],
     }
 
 
+def generate_ai_workers(task_title: str, task_desc: str, category: str) -> list[dict]:
+    """Generates workers whose occupations and skills strictly match the user's task requirement."""
+    
+    prompt = f"""
+    You are an AI Workforce Dispatch Agent.
+    A customer submitted the following service request:
+    - Task Title: "{task_title}"
+    - Description: "{task_desc}"
+    - Inferred Category: "{category}"
+
+    STRICT OCCUPATION MATCHING INSTRUCTIONS:
+    1. Every generated worker's "role" (occupation) MUST directly correspond to the customer's request. 
+       (e.g., if the user asks to look after a grandpa, roles MUST be "Senior Caregiver", "Elderly Care Assistant", or "Home Patient Assistant").
+    2. "skills" must be specific and relevant to this job request.
+    3. Do NOT generate generic or unrelated service roles (e.g., do not return an electrician if the task is caregiving or tutoring).
+
+    Return ONLY a valid JSON array of 3 distinct worker objects (no extra text or markdown formatting):
+    [
+        {{
+            "id": 301,
+            "name": "Full Name",
+            "initials": "FN",
+            "role": "Exact Relevant Role/Occupation",
+            "skills": ["Relevant Skill 1", "Relevant Skill 2", "Relevant Skill 3"],
+            "rating": 4.9,
+            "jobs": 52,
+            "distance": 1.8,
+            "rate": 450,
+            "available": true,
+            "color": "#1d7a68",
+            "score": 96
+        }}
+    ]
+    """
+
+    if client:
+        max_retries = 3
+        delay = 1
+        for attempt in range(max_retries):
+            try:
+                response = client.models.generate_content(
+                    model="gemini-3.8-flash",
+                    contents=prompt,
+                )
+                clean_json = response.text.replace("```json", "").replace("```", "").strip()
+                return json.loads(clean_json)
+            except Exception as e:
+                print(f"[AI WORKER GENERATION ATTEMPT {attempt + 1} FAILED]: {e}")
+                if attempt < max_retries - 1:
+                    time.sleep(delay)
+                    delay *= 2
+
+    # Fallback profiles matching the category domain
+    return [
+        {
+            "id": 401,
+            "name": "Suresh Verma",
+            "initials": "SV",
+            "role": f"Certified {category} Specialist",
+            "skills": [f"{category} Assistance", "Direct Support", "Verified"],
+            "rating": 4.9,
+            "jobs": 88,
+            "distance": 1.5,
+            "rate": 500,
+            "available": True,
+            "color": "#1d7a68",
+            "score": 95,
+        },
+        {
+            "id": 402,
+            "name": "Ananya Rao",
+            "initials": "AR",
+            "role": f"Experienced {category} Provider",
+            "skills": [f"{category} Care", "Personal Support", "Trusted"],
+            "rating": 4.8,
+            "jobs": 64,
+            "distance": 2.8,
+            "rate": 450,
+            "available": True,
+            "color": "#5e63c8",
+            "score": 90,
+        },
+    ]
+
+
 def ranked_workers(analysis: dict) -> list[dict]:
-    required = set(analysis["skills"])
+    """Combines hardcoded workers with dynamically generated AI workers based on task relevance."""
+    required = [s.lower() for s in analysis.get("skills", [])]
+    category = str(analysis.get("category", "")).lower()
     ranked = []
+
+    # 1. Score hardcoded static workers
     for worker in WORKERS:
-        overlap = len(required.intersection(worker["skills"])) / len(required)
-        distance_score = max(0, 1 - worker["distance"] / 8)
-        rating_score = worker["rating"] / 5
-        availability_score = 1 if worker["available"] else 0
-        score = round(
-            (
-                overlap * 0.50
-                + distance_score * 0.25
-                + rating_score * 0.15
-                + availability_score * 0.10
-            )
-            * 100
+        worker_skills = [s.lower() for s in worker.get("skills", [])]
+        worker_role = str(worker.get("role", "")).lower()
+
+        skill_matches = sum(
+            1 for req in required if any(req in w_s or w_s in req for w_s in worker_skills)
         )
-        if overlap:
+        category_match = 1 if (category in worker_role or worker_role in category) else 0
+
+        if skill_matches > 0 or category_match > 0:
+            overlap_score = (skill_matches / len(required)) if required else 0.5
+            distance_score = max(0, 1 - worker["distance"] / 8)
+            rating_score = worker["rating"] / 5
+            availability_score = 1.0 if worker["available"] else 0.0
+
+            score = round(
+                (
+                    overlap_score * 0.40
+                    + category_match * 0.20
+                    + distance_score * 0.20
+                    + rating_score * 0.10
+                    + availability_score * 0.10
+                )
+                * 100
+            )
+
             item = worker.copy()
-            item["score"] = score
-            item["skill_matches"] = len(required.intersection(worker["skills"]))
+            item["score"] = max(score, 65)
+            item["skill_matches"] = skill_matches
             ranked.append(item)
-    return sorted(ranked, key=lambda item: item["score"], reverse=True)
+
+    # 2. Dynamically fetch matching AI candidates to expand worker availability
+    task_info = session.get("task", {})
+    ai_generated = generate_ai_workers(
+        task_info.get("title", "Service Request"),
+        task_info.get("description", ""),
+        analysis.get("category", "General Helper"),
+    )
+
+    combined = ranked + ai_generated
+    combined.sort(key=lambda x: x.get("score", 80), reverse=True)
+    return combined
 
 
 def send_otp(email, otp):
@@ -273,30 +392,39 @@ def home():
 def chat():
     try:
         if not client:
-            return jsonify({"error": "Gemini API Client not configured."}), 500
+            return jsonify({
+                "response": "API key missing. Please check GEMINI_API_KEY in your .env file."
+            }), 400
 
-        data = request.get_json()
+        data = request.get_json() or {}
         prompt = data.get("prompt", "").strip()
 
         if not prompt:
-            return jsonify({"error": "Empty prompt"}), 400
+            return jsonify({"response": "Please ask a question."}), 400
 
-        try:
-            response = client.models.generate_content(
-                model="gemini-3.5-flash-lite",
-                contents=prompt,
-            )
-        except Exception:
-            response = client.models.generate_content(
-                model="gemini-2.0-flash-lite",
-                contents=prompt,
-            )
+        max_retries = 3
+        delay = 1
 
-        return jsonify({"response": response.text})
+        for attempt in range(max_retries):
+            try:
+                response = client.models.generate_content(
+                    model="gemini-3.8-flash",
+                    contents=f"You are a helpful assistant for Taskmate, a home services platform. Answer concisely: {prompt}",
+                )
+                return jsonify({"response": response.text})
+            except Exception as api_err:
+                print(f"[GEMINI ATTEMPT {attempt + 1} FAILED]: {api_err}")
+                if attempt < max_retries - 1:
+                    time.sleep(delay)
+                    delay *= 2
+
+        return jsonify({
+            "response": f"I can help you schedule a qualified service provider for your request: '{prompt}'. Enter your task details in the form above to see matched local workers!"
+        })
 
     except Exception as e:
-        print(f"\n[BACKEND ERROR]: {e}\n")
-        return jsonify({"error": str(e)}), 500
+        print(f"[CHAT ROUTE CRASH]: {e}")
+        return jsonify({"response": "Internal server error occurred."}), 500
 
 
 @app.route("/register", methods=["GET", "POST"])
@@ -395,27 +523,44 @@ def matches():
     analysis = session.get("analysis")
     if not analysis:
         return redirect(url_for("home"))
+    
+    # Store generated workers in session so their IDs remain fixed
+    workers = ranked_workers(analysis)
+    session["current_matches"] = workers
+    
     return render_template(
         "matches.html",
         task=session.get("task", {}),
         analysis=analysis,
-        workers=ranked_workers(analysis),
+        workers=workers,
     )
 
 
 @app.route("/assign/<int:worker_id>", methods=["POST"])
 def assign(worker_id: int):
+    # 1. Search hardcoded static workers first
     worker = next((item for item in WORKERS if item["id"] == worker_id), None)
-    if not worker or "task" not in session:
+    
+    # 2. Search saved session matches second (for AI-generated workers)
+    if not worker:
+        saved_matches = session.get("current_matches", [])
+        worker = next((item for item in saved_matches if item["id"] == worker_id), None)
+
+    # 3. Handle missing session data gracefully
+    if not session.get("task"):
+        flash("Session expired. Please submit your request again.")
         return redirect(url_for("home"))
+
+    if not worker:
+        flash("Worker not found. Please try choosing again.")
+        return redirect(url_for("matches"))
+
     session["assigned_worker"] = worker
     session["status"] = "Assigned"
     return redirect(url_for("tracker"))
 
-
 @app.route("/tracker", methods=["GET", "POST"])
 def tracker():
-    # Safely retrieve task or set default fallback object
     task = session.get("task", {
         "title": "Fix Ceiling Fan",
         "description": "Fan is making noise and stopped spinning.",
@@ -423,7 +568,6 @@ def tracker():
         "budget": "450"
     })
     
-    # Safely retrieve worker or assign default
     worker = session.get("assigned_worker", WORKERS[0])
     
     if request.method == "POST":
@@ -483,7 +627,6 @@ def verify_payment():
 
 @app.route("/worker/dashboard")
 def worker_dashboard():
-    # Retrieve assigned job if accepted
     active_job = session.get("task") if session.get("assigned_worker") else None
     current_status = session.get("status", "Worker On The Way")
 
@@ -508,10 +651,8 @@ def worker_dashboard():
 
 @app.route("/api/worker/accept-task/<int:task_id>", methods=["POST"])
 def worker_accept_task(task_id: int):
-    # Assign default worker
     worker = WORKERS[0]
     
-    # Set task defaults if session does not have active task
     if "task" not in session:
         session["task"] = {
             "title": "Fix Ceiling Fan",
@@ -520,14 +661,13 @@ def worker_accept_task(task_id: int):
             "budget": "450"
         }
 
-    # Update global task session status
     session["assigned_worker"] = worker
     session["status"] = "Worker On The Way"
     
     return jsonify({
         "status": "success",
         "message": f"Task #{task_id} accepted!",
-        "redirect": url_for("tracker")
+        "redirect": url_for("worker_dashboard")
     })
 
 
@@ -538,6 +678,7 @@ def worker_update_status():
     if new_status:
         session["status"] = new_status
     return jsonify({"status": "success", "current_status": session["status"]})
+
 
 # --- Database Creation & Entry Point ---
 with app.app_context():
