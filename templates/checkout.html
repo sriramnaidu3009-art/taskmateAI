@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+
+{% block title %}Checkout - Taskmate AI{% endblock %}
+
+{% block content %}
+<div class="container d-flex justify-content-center align-items-center" style="min-height: 80vh;">
+    <div class="card shadow-sm border-0 p-4" style="max-width: 480px; width: 100%; border-radius: 16px;">
+        <h3 class="fw-bold mb-4 text-center">Payment Summary</h3>
+
+        <div class="d-flex justify-content-between mb-2">
+            <span class="text-muted">Base Task Amount</span>
+            <span class="fw-semibold">₹{{ "%.2f"|format(pricing.base_amount) }}</span>
+        </div>
+
+        <div class="d-flex justify-content-between mb-2">
+            <span class="text-muted">Platform Fee (5%)</span>
+            <span class="fw-semibold">₹{{ "%.2f"|format(pricing.platform_fee) }}</span>
+        </div>
+
+        <div class="d-flex justify-content-between mb-3">
+            <span class="text-muted">GST on Fee (18%)</span>
+            <span class="fw-semibold">₹{{ "%.2f"|format(pricing.gst_on_fee) }}</span>
+        </div>
+
+        <hr class="my-3">
+
+        <div class="d-flex justify-content-between mb-4 fs-5 fw-bold">
+            <span>Total Payable</span>
+            <span class="text-success">₹{{ "%.2f"|format(pricing.total_amount) }}</span>
+        </div>
+
+        <button id="rzp-button" class="btn btn-success w-100 btn-lg fw-bold">
+            Pay Now &rarr;
+        </button>
+    </div>
+</div>
+
+<!-- Razorpay Checkout Script -->
+<script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+<script>
+var options = {
+    "key": "{{ razorpay_key_id }}",
+    "amount": "{{ pricing.total_amount_paisa }}",
+    "currency": "INR",
+    "name": "Taskmate AI",
+    "description": "Payment for Task #{{ task_id }}",
+    "order_id": "{{ order_id }}",
+    "handler": function (response){
+        alert("Payment Successful! Payment ID: " + response.razorpay_payment_id);
+        window.location.href = "{{ url_for('home') }}";
+    },
+    "theme": {
+        "color": "#125e46"
+    }
+};
+var rzp1 = new Razorpay(options);
+document.getElementById('rzp-button').onclick = function(e){
+    rzp1.open();
+    e.preventDefault();
+}
+</script>
+{% endblock %}

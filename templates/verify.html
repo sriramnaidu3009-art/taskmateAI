@@ -1,29 +1,125 @@
-{% extends 'base.html' %}
+{% extends "base.html" %}
 
-{% block title %}Verify Code · Taskmate AI{% endblock %}
+{% block title %}Verify Account - Taskmate AI{% endblock %}
 
 {% block content %}
-<div class="hero" style="max-width: 500px; margin: 40px auto;">
-    <div class="task-form">
-        <h2>Enter Verification Code</h2>
+<style>
+    .verify-wrapper {
+        min-height: 75vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+    }
+    .verify-card {
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
+        border-radius: 16px;
+        box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.01);
+        padding: 40px 32px;
+        max-width: 440px;
+        width: 100%;
+        text-align: center;
+    }
+    .verify-title {
+        font-family: Georgia, serif;
+        font-size: 1.8rem;
+        color: #1a2e26;
+        margin-bottom: 8px;
+    }
+    .verify-subtitle {
+        color: #64748b;
+        font-size: 0.95rem;
+        margin-bottom: 24px;
+        line-height: 1.5;
+    }
+    .otp-input {
+        width: 100%;
+        padding: 14px;
+        font-size: 1.5rem;
+        font-weight: 600;
+        letter-spacing: 10px;
+        text-align: center;
+        border: 1.5px solid #cbd5e1;
+        border-radius: 10px;
+        outline: none;
+        transition: all 0.2s ease;
+        background-color: #f8fafc;
+        color: #0f172a;
+    }
+    .otp-input:focus {
+        border-color: #0d6efd;
+        background-color: #ffffff;
+        box-shadow: 0 0 0 4px rgba(13, 110, 253, 0.15);
+    }
+    .btn-verify {
+        width: 100%;
+        background-color: #125e46;
+        color: #ffffff;
+        font-size: 1rem;
+        font-weight: 600;
+        padding: 14px;
+        border: none;
+        border-radius: 10px;
+        margin-top: 20px;
+        cursor: pointer;
+        transition: background-color 0.2s ease;
+    }
+    .btn-verify:hover {
+        background-color: #0d4634;
+    }
+    .flash-alert {
+        background-color: #e6f4ea;
+        color: #137333;
+        border: 1px solid #ceebd6;
+        padding: 10px 14px;
+        border-radius: 8px;
+        font-size: 0.875rem;
+        margin-bottom: 20px;
+    }
+    .resend-link {
+        display: inline-block;
+        margin-top: 20px;
+        color: #475569;
+        font-size: 0.875rem;
+        text-decoration: none;
+        font-weight: 500;
+    }
+    .resend-link:hover {
+        color: #125e46;
+        text-decoration: underline;
+    }
+</style>
+
+<div class="verify-wrapper">
+    <div class="verify-card">
+        <h2 class="verify-title">Enter Verification Code</h2>
+        <p class="verify-subtitle">Please check your phone or terminal console for the 6-digit OTP code.</p>
 
         {% with messages = get_flashed_messages() %}
           {% if messages %}
-            <div style="background: var(--mint); border: 1px solid #cce2d8; padding: 12px 16px; border-radius: 8px; margin-bottom: 20px; color: var(--green); font-size: 14px;">
-              {% for message in messages %}
-                <div>{{ message }}</div>
-              {% endfor %}
-            </div>
+            {% for message in messages %}
+              <div class="flash-alert">{{ message }}</div>
+            {% endfor %}
           {% endif %}
         {% endwith %}
 
-        <form method="POST" action="/verify">
-            <label>6-Digit OTP
-                <input type="text" name="otp" placeholder="Enter 6-digit code" required maxlength="6" style="letter-spacing: 2px; font-weight: 600;">
-            </label>
-
-            <button type="submit" class="button primary" style="width: 100%; margin-top: 10px;">Verify & Register <span>→</span></button>
+        <form method="POST" action="{{ url_for('verify') }}">
+            <input type="text" 
+                   name="otp" 
+                   class="otp-input" 
+                   placeholder="••••••" 
+                   maxlength="6" 
+                   required 
+                   autofocus 
+                   autocomplete="off">
+                   
+            <button type="submit" class="btn-verify">Verify & Register &rarr;</button>
         </form>
+
+        <a href="{{ url_for('register') }}" class="resend-link">
+            Didn't receive a code? Register again
+        </a>
     </div>
 </div>
 {% endblock %}

@@ -9,6 +9,12 @@
 </head>
 <body class="bg-stone-50 text-stone-800 font-sans min-h-screen flex flex-col">
 
+    {# Bill amounts (same math as calculate_payment_breakdown in app.py) #}
+    {% set base_amount = worker.rate|float %}
+    {% set platform_fee = (base_amount * 0.05)|round(2) %}
+    {% set gst_on_fee = (platform_fee * 0.18)|round(2) %}
+    {% set total_amount = (base_amount + platform_fee + gst_on_fee)|round(2) %}
+
     <!-- Header / Navbar -->
     <header class="bg-white border-b border-stone-200 py-4 px-6 md:px-12 flex justify-between items-center shadow-sm">
         <a href="/" class="text-2xl font-bold text-teal-800 tracking-tight flex items-center gap-2">
@@ -26,7 +32,7 @@
 
     <!-- Main Content -->
     <main class="flex-1 max-w-5xl w-full mx-auto p-6 md:p-10">
-        
+
         <!-- Status Banner -->
         <div class="bg-white border border-stone-200 rounded-2xl p-6 mb-8 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
             <div>
@@ -41,12 +47,12 @@
         </div>
 
         <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-            
+
             <!-- Assigned Worker Card -->
             <div class="bg-white border border-stone-200 rounded-2xl p-6 shadow-sm flex flex-col justify-between">
                 <div>
                     <span class="text-xs uppercase tracking-wider text-stone-400 font-semibold">Assigned Professional</span>
-                    
+
                     <div class="flex items-center gap-4 mt-4">
                         <div class="w-14 h-14 rounded-full flex items-center justify-center text-white text-xl font-bold shadow" style="background-color: {{ worker.color or '#1d7a68' }};">
                             {{ worker.initials }}
@@ -69,20 +75,45 @@
                     </div>
                 </div>
 
-                <!-- Payment Button -->
-                <button id="pay-btn" onclick="payNow()" class="mt-6 w-full bg-teal-800 hover:bg-teal-900 text-white font-bold py-3.5 px-4 rounded-xl shadow transition flex items-center justify-center gap-2">
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 002-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
-                    Pay ₹{{ worker.rate }} Now
-                </button>
+                <!-- Bill + Payment Button -->
+                <div class="mt-6">
+
+                    <!-- Payment Bill (sits directly above the pay button) -->
+                    <div class="bg-stone-50 border border-stone-200 rounded-xl p-4 mb-4 text-sm">
+                        <div class="flex justify-between mb-2">
+                            <span class="text-stone-500">Task Base Amount</span>
+                            <span class="font-semibold text-stone-800">₹{{ '%.2f'|format(base_amount) }}</span>
+                        </div>
+                        <div class="flex justify-between mb-2">
+                            <span class="text-stone-500">Platform Fee (5%)</span>
+                            <span class="font-semibold text-stone-800">₹{{ '%.2f'|format(platform_fee) }}</span>
+                        </div>
+                        <div class="flex justify-between mb-2">
+                            <span class="text-stone-500">GST on Fee (18%)</span>
+                            <span class="font-semibold text-stone-800">₹{{ '%.2f'|format(gst_on_fee) }}</span>
+                        </div>
+                        <div class="border-t border-stone-300 my-2"></div>
+                        <div class="flex justify-between items-center pt-1">
+                            <span class="font-bold text-stone-900">Total Amount</span>
+                            <span class="font-extrabold text-lg text-teal-800">₹{{ '%.2f'|format(total_amount) }}</span>
+                        </div>
+                    </div>
+
+                    <!-- Green Pay Button -> opens Razorpay checkout -->
+                    <button id="pay-btn" type="button" onclick="payNow()" class="w-full bg-teal-800 hover:bg-teal-900 text-white font-bold py-3.5 px-4 rounded-xl shadow transition flex items-center justify-center gap-2">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
+                        <span>Pay ₹{{ '%.2f'|format(total_amount) }} Now</span>
+                    </button>
+                </div>
             </div>
 
             <!-- Task Details & Embedded Google Map -->
             <div class="md:col-span-2 space-y-6">
-                
+
                 <!-- Task Information Card -->
                 <div class="bg-white border border-stone-200 rounded-2xl p-6 shadow-sm">
                     <span class="text-xs uppercase tracking-wider text-stone-400 font-semibold">Task Information</span>
-                    
+
                     <h3 class="text-xl font-bold text-stone-900 mt-2">{{ task.title }}</h3>
                     <p class="text-stone-600 mt-3 leading-relaxed bg-stone-50 p-4 rounded-xl border border-stone-100">
                         {{ task.description or "No detailed description provided." }}
@@ -108,7 +139,7 @@
                             <span class="w-2 h-2 rounded-full bg-teal-600 animate-ping"></span> Live Destination
                         </span>
                     </div>
-                    
+
                     <div class="w-full h-64 rounded-xl overflow-hidden border border-stone-200 shadow-inner">
                         <iframe
                             width="100%"
@@ -117,7 +148,7 @@
                             style="border:0"
                             loading="lazy"
                             allowfullscreen
-                            src="https://maps.google.com/maps?q={{ task.location or 'Hyderabad' }}&t=&z=14&ie=UTF8&iwloc=&output=embed">
+                            src="https://maps.google.com/maps?q={{ (task.location or 'Hyderabad')|urlencode }}&t=&z=14&ie=UTF8&iwloc=&output=embed">
                         </iframe>
                     </div>
                 </div>
@@ -130,34 +161,42 @@
                 </form>
 
             </div>
-
         </div>
     </main>
 
     <!-- Razorpay Checkout Handler -->
     <script>
-        function payNow() {
-            const amountInPaise = {{ worker.rate }} * 100;
+        const BASE_AMOUNT = {{ base_amount }};
+        const TASK_TITLE = {{ (task.title or 'Custom Service')|tojson }};
 
-            fetch('/create-order', {
+        function payNow() {
+            const btn = document.getElementById('pay-btn');
+            btn.disabled = true;
+            btn.classList.add('opacity-70');
+
+            // Server calculates fee + GST and creates the Razorpay order
+            fetch('/api/create-order', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ amount: amountInPaise })
+                body: JSON.stringify({ amount: BASE_AMOUNT, title: TASK_TITLE })
             })
             .then(res => res.json())
-            .then(order => {
-                if(order.error) {
-                    alert('Payment initialization failed: ' + order.error);
+            .then(data => {
+                if (data.error) {
+                    alert('Payment initialization failed: ' + data.error);
+                    resetButton();
                     return;
                 }
 
                 const options = {
-                    key: "{{ razorpay_key }}",
-                    amount: order.amount,
-                    currency: order.currency,
+                    key: data.key || "{{ razorpay_key }}",
+                    amount: data.pricing.total_amount_paisa,
+                    currency: "INR",
                     name: "Taskmate AI",
-                    description: "Task Booking Payment",
-                    order_id: order.id,
+                    description: data.title + " (Base ₹" + data.pricing.base_amount.toFixed(2) +
+                                 " + Fee ₹" + data.pricing.platform_fee.toFixed(2) +
+                                 " + GST ₹" + data.pricing.gst_on_fee.toFixed(2) + ")",
+                    order_id: data.order_id,
                     handler: function (response) {
                         fetch('/verify-payment', {
                             method: 'POST',
@@ -165,25 +204,38 @@
                             body: JSON.stringify(response)
                         })
                         .then(res => res.json())
-                        .then(data => {
-                            if (data.status === 'success') {
+                        .then(result => {
+                            if (result.status === 'success') {
                                 alert('Payment successful! Your worker is confirmed.');
-                                location.reload();
+                                window.location.reload();
                             } else {
                                 alert('Payment verification failed.');
+                                resetButton();
                             }
-                        });
+                        })
+                        .catch(() => { alert('Could not verify payment.'); resetButton(); });
                     },
                     prefill: {
                         email: "{{ current_user.email if current_user.is_authenticated else '' }}"
                     },
+                    modal: { ondismiss: resetButton },
                     theme: { color: "#1d7a68" }
                 };
 
                 const rzp = new Razorpay(options);
                 rzp.open();
             })
-            .catch(err => alert('Error initiating payment. Check server logs.'));
+            .catch(err => {
+                console.error('Payment error:', err);
+                alert('Error initiating payment. Check server logs.');
+                resetButton();
+            });
+        }
+
+        function resetButton() {
+            const btn = document.getElementById('pay-btn');
+            btn.disabled = false;
+            btn.classList.remove('opacity-70');
         }
     </script>
 </body>

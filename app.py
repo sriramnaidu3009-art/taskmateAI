@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import math
 import random
 import time
 import firebase_admin
@@ -41,6 +42,8 @@ app = Flask(__name__)
 # Gemini Setup
 api_key = os.getenv("GEMINI_API_KEY")
 client = genai.Client(api_key=api_key) if api_key else None
+#Fast2sms setup
+FAST2SMS_API_KEY = os.environ.get("FAST2SMS_API_KEY", "")
 
 # Flask Mail Setup
 app.config["MAIL_SERVER"] = "smtp.gmail.com"
@@ -80,17 +83,18 @@ login_manager = LoginManager(app)
 login_manager.login_view = "login"
 
 # 5. Initialize Razorpay Client
-RAZORPAY_KEY_ID = os.getenv("RAZORPAY_KEY_ID", "rzp_test_Ten1DAFnOCg6e4")
-RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET", "3EBlTp0mCvV0wqxp462JFJwV")
+RAZORPAY_KEY_ID = os.getenv("RAZORPAY_KEY_ID", "rzp_test_TjmYlCGss5BpcP")
+RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET", "aSDlOi1qJYvrtMq5HQgjxoCJ")
 razorpay_client = razorpay.Client(auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET))
 
 
 # --- Database Models ---
-class User(UserMixin, db.Model):
+class User(db.Model, UserMixin):
     id = db.Column(db.Integer, primary_key=True)
-    email = db.Column(db.String(100), unique=True, nullable=False)
+    username = db.Column(db.String(100), nullable=False)
+    email = db.Column(db.String(120), unique=True, nullable=False)
+    phone = db.Column(db.String(20), unique=True, nullable=False)
     password = db.Column(db.String(200), nullable=False)
-
 
 @login_manager.user_loader
 def load_user(user_id):
@@ -161,6 +165,56 @@ KEYWORDS = {
     "caregiver": ["grandpa", "grandma", "elderly", "care", "look after", "patient", "nurse", "senior"],
 }
 
+#razorpay payment checkout integration
+def calculate_payment_breakdown(base_amount: float):
+    """
+    Calculates platform fee (5%) and GST (18% on platform fee).
+    Returns amounts rounded to 2 decimal places and the total in paisa for Razorpay.
+    """
+    platform_fee = round(base_amount * 0.05, 2)       # 5% Platform Fee
+    gst_on_fee = round(platform_fee * 0.18, 2)         # 18% GST on Platform Fee
+    total_amount = round(base_amount + platform_fee + gst_on_fee, 2)
+    
+    # Razorpay expects amounts in the smallest currency unit (Paisa)
+    total_amount_paisa = int(math.ceil(total_amount * 100))
+    
+    return {
+        "base_amount": base_amount,
+        "platform_fee": platform_fee,
+        "gst_on_fee": gst_on_fee,
+        "total_amount": total_amount,
+        "total_amount_paisa": total_amount_paisa
+    }
+#Fast2SMS API integration
+def send_sms_otp(phone_number: str, otp: str):
+    """Sends real-time 6-digit OTP via Fast2SMS API with terminal fallback."""
+    if FAST2SMS_API_KEY:
+        url = "https://www.fast2sms.com/dev/bulkV2"
+        headers = {
+            "authorization": FAST2SMS_API_KEY,
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "variables_values": otp,
+            "route": "otp",
+            "numbers": phone_number
+        }
+        try:
+            response = requests.post(url, json=payload, headers=headers, timeout=5)
+            res_data = response.json()
+            if res_data.get("return"):
+                print(f"[FAST2SMS SUCCESS] OTP sent to {phone_number}")
+                return True
+            else:
+                print(f"[FAST2SMS ERROR] {res_data.get('message')}")
+        except Exception as e:
+            print(f"[FAST2SMS EXCEPTION] Failed to send SMS: {e}")
+
+    # Fallback log for terminal debugging if API key is missing or fails
+    print("\n==================================================")
+    print(f"[REAL-TIME OTP VERIFICATION] Code for {phone_number}: {otp}")
+    print("==================================================\n")
+    return False
 
 # --- Helper & AI Functions ---
 
@@ -372,7 +426,76 @@ def send_otp(email, otp):
         print(f"[MAIL ERROR / RENDER BLOCK]: {e}")
 
 
+
 # --- Application Routes ---
+@app.route("/api/create-order", methods=["POST"])
+@login_required
+def create_payment_order():  # <-- Unique function name
+    data = request.get_json() or {}
+    
+    try:
+        base_price = float(data.get("amount", 0))
+    except (ValueError, TypeError):
+        return jsonify({"error": "Invalid price"}), 400
+
+    task_title = data.get("title", "Custom Service")
+    
+    if base_price <= 0:
+        return jsonify({"error": "Amount must be greater than zero"}), 400
+
+    pricing = calculate_payment_breakdown(base_price)
+
+    order_data = {
+        "amount": pricing["total_amount_paisa"],
+        "currency": "INR",
+        "receipt": f"order_rcpt_{int(base_price)}",
+        "payment_capture": 1
+    }
+
+    try:
+        razorpay_order = razorpay_client.order.create(data=order_data)
+        order_id = razorpay_order["id"]
+    except Exception as e:
+        print(f"[RAZORPAY ERROR] {e}")
+        order_id = "mock_order_id"
+
+    return jsonify({
+        "order_id": order_id,
+        "pricing": pricing,
+        "title": task_title,
+        "key": os.environ.get("RAZORPAY_KEY_ID", "")
+    })
+@app.route("/create-checkout/<int:task_id>", methods=["GET", "POST"])
+@login_required
+def create_checkout(task_id):
+    # Fetch your task object (e.g., Task.query.get_or_404(task_id))
+    # Assuming base task price is defined (e.g., ₹1000)
+    base_price = 1000.00 
+    
+    pricing = calculate_payment_breakdown(base_price)
+
+    # Create a Razorpay Order
+    order_data = {
+        "amount": pricing["total_amount_paisa"],
+        "currency": "INR",
+        "receipt": f"task_receipt_{task_id}",
+        "payment_capture": 1  # Auto capture payment
+    }
+    
+    try:
+        razorpay_order = razorpay_client.order.create(data=order_data)
+        order_id = razorpay_order["id"]
+    except Exception as e:
+        print(f"[RAZORPAY ERROR] {e}")
+        order_id = "mock_order_id_for_testing"
+
+    return render_template(
+        "checkout.html",
+        pricing=pricing,
+        order_id=order_id,
+        razorpay_key_id=RAZORPAY_KEY_ID,
+        task_id=task_id
+    )
 
 @app.route("/", methods=["GET", "POST"])
 def home():
@@ -430,57 +553,74 @@ def chat():
 @app.route("/register", methods=["GET", "POST"])
 def register():
     if request.method == "POST":
-        email = request.form.get("email")
-        password = request.form.get("password")
+        # 1. Retrieve form fields
+        username = request.form.get('username')
+        email = request.form.get('email')
+        phone = request.form.get('phone')
+        password = request.form.get('password')
 
-        if User.query.filter_by(email=email).first():
-            flash("Email address already exists.")
-            return redirect(url_for("register"))
+        # 2. Check for duplicate email
+        if email and User.query.filter_by(email=email).first():
+            flash('Email is already registered. Please log in or use another email.', 'danger')
+            return redirect(url_for('register'))
 
+        # 3. Check for duplicate phone
+        if phone and User.query.filter_by(phone=phone).first():
+            flash('Phone number is already registered.', 'danger')
+            return redirect(url_for('register'))
+
+        # 4. Generate 6-digit OTP
         otp = str(random.randint(100000, 999999))
+
+        # 5. Store pending user details in session (user is NOT saved to DB yet)
         session["temp_user"] = {
+            "username": username,
             "email": email,
+            "phone": phone,
             "password": generate_password_hash(password, method="scrypt"),
             "otp": otp,
         }
 
-        try:
-            send_otp(email, otp)
-            print(f"\n==========================================")
-            print(f"[DEBUG] OTP Code for {email}: {otp}")
-            print(f"==========================================\n")
+        # 6. Send OTP and redirect to verification route
+        send_sms_otp(phone, otp)
+        flash("A 6-digit verification code has been sent to your phone!", "info")
+        return redirect(url_for("verify"))
 
-            flash("Verification code generated! Check terminal or email.")
-            return redirect(url_for("verify"))
-        except Exception as e:
-            flash(f"Registration error: {e}")
-            return redirect(url_for("register"))
-
+    # Render registration page on GET request
     return render_template("register.html")
 
 
 @app.route("/verify", methods=["GET", "POST"])
 def verify():
     temp_user = session.get("temp_user")
+    
     if not temp_user:
+        flash("Please fill out the registration form first.", "warning")
         return redirect(url_for("register"))
 
     if request.method == "POST":
-        user_code = request.form.get("otp")
-        if user_code == temp_user["otp"]:
+        entered_otp = request.form.get("otp", "").strip()
+
+        if entered_otp == temp_user.get("otp"):
             new_user = User(
-                email=temp_user["email"], password=temp_user["password"]
+                username=temp_user.get("username"),
+                email=temp_user.get("email"),
+                phone=temp_user.get("phone"),
+                password=temp_user.get("password")
             )
+            
             db.session.add(new_user)
             db.session.commit()
-            login_user(new_user)
+
             session.pop("temp_user", None)
-            return redirect(url_for("home"))
+            login_user(new_user)
+
+            flash("Account verified and registered successfully!", "success")
+            return redirect(url_for("tracker"))
         else:
-            flash("Invalid verification code. Please try again.")
+            flash("Invalid OTP code. Please try again.", "danger")
 
     return render_template("verify.html")
-
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
