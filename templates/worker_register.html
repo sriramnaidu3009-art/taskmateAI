@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Worker Registration - Taskmate Pro</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        }
+
+        body {
+            background-color: #f5f5f4;
+            color: #292524;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        header {
+            background-color: #1c1917;
+            color: #ffffff;
+            padding: 1rem 1.5rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+
+        .brand-logo {
+            color: #2dd4bf;
+            font-weight: bold;
+            font-size: 1.25rem;
+            text-decoration: none;
+        }
+
+        .badge {
+            font-size: 0.75rem;
+            background-color: #292524;
+            color: #d6d3d1;
+            padding: 0.25rem 0.625rem;
+            border-radius: 9999px;
+            border: 1px solid #44403c;
+        }
+
+        main {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 2rem 1rem;
+        }
+
+        .register-card {
+            background-color: #ffffff;
+            border: 1px solid #e7e5e4;
+            border-radius: 1rem;
+            padding: 2.5rem 2rem;
+            width: 100%;
+            max-width: 32rem;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05);
+        }
+
+        .register-header {
+            margin-bottom: 2rem;
+            text-align: center;
+        }
+
+        .register-header h1 {
+            font-size: 1.75rem;
+            font-weight: 700;
+            color: #1c1917;
+            margin-bottom: 0.5rem;
+        }
+
+        .register-header p {
+            font-size: 0.875rem;
+            color: #78716c;
+        }
+
+        .form-group {
+            margin-bottom: 1.25rem;
+        }
+
+        label {
+            display: block;
+            font-size: 0.875rem;
+            font-weight: 600;
+            color: #44403c;
+            margin-bottom: 0.5rem;
+        }
+
+        input[type="text"],
+        input[type="email"],
+        input[type="password"],
+        select,
+        textarea {
+            width: 100%;
+            padding: 0.75rem 1rem;
+            border: 1px solid #d6d3d1;
+            border-radius: 0.5rem;
+            font-size: 0.95rem;
+            background-color: #fafaf9;
+            transition: border-color 0.2s, background-color 0.2s;
+        }
+
+        input:focus, select:focus, textarea:focus {
+            outline: none;
+            border-color: #0d9488;
+            background-color: #ffffff;
+        }
+
+        textarea {
+            resize: vertical;
+            min-height: 5rem;
+        }
+
+        .btn-submit {
+            width: 100%;
+            background-color: #115e59;
+            color: #ffffff;
+            font-weight: 700;
+            font-size: 1rem;
+            padding: 0.875rem;
+            border-radius: 0.5rem;
+            border: none;
+            cursor: pointer;
+            margin-top: 0.5rem;
+            transition: background-color 0.2s;
+        }
+
+        .btn-submit:hover {
+            background-color: #134e4a;
+        }
+
+        .form-footer {
+            margin-top: 1.5rem;
+            text-align: center;
+            font-size: 0.875rem;
+            color: #78716c;
+        }
+
+        .form-footer a {
+            color: #0d9488;
+            font-weight: 600;
+            text-decoration: none;
+        }
+
+        .form-footer a:hover {
+            text-decoration: underline;
+        }
+
+        .flash-messages {
+            margin-bottom: 1.5rem;
+        }
+
+        .flash-message {
+            background-color: #ffe4e6;
+            border: 1px solid #fecdd3;
+            color: #be123c;
+            padding: 0.75rem 1rem;
+            border-radius: 0.5rem;
+            font-size: 0.875rem;
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <a href="/" class="brand-logo">✦ Taskmate Pro</a>
+        <span class="badge">Worker Portal</span>
+    </header>
+
+    <main>
+        <div class="register-card">
+            <div class="register-header">
+                <h1>Register as Worker</h1>
+                <p>Join Taskmate Pro to find service jobs in your area</p>
+            </div>
+
+            {% with messages = get_flashed_messages(with_categories=true) %}
+              {% if messages %}
+                <div class="flash-messages">
+                  {% for category, message in messages %}
+                    <div class="flash-message">{{ message }}</div>
+                  {% endfor %}
+                </div>
+              {% endif %}
+            {% endwith %}
+
+            <form action="{{ url_for('worker_register') }}" method="POST">
+                <div class="form-group">
+                    <label for="name">Full Name</label>
+                    <input type="text" id="name" name="name" placeholder="John Doe" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="contact">Email or Phone Number</label>
+                    <input type="text" id="contact" name="contact" placeholder="worker@example.com or 9876543210" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="password">Password</label>
+                    <input type="password" id="password" name="password" placeholder="••••••••" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="skills">Primary Skill / Service Category</label>
+                    <select id="skills" name="skills" required>
+                        <option value="" disabled selected>Select your skill</option>
+                        <option value="Electrical & Appliance Repair">Electrical & Appliance Repair</option>
+                        <option value="Plumbing & Pipefitting">Plumbing & Pipefitting</option>
+                        <option value="Carpentry & Woodwork">Carpentry & Woodwork</option>
+                        <option value="Home Cleaning & Housekeeping">Home Cleaning & Housekeeping</option>
+                        <option value="General Handyman Services">General Handyman Services</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="description">Brief Service Description</label>
+                    <textarea id="description" name="description" placeholder="Describe your experience, expertise, or service area..." required></textarea>
+                </div>
+
+                <button type="submit" class="btn-submit">Register & Verify</button>
+            </form>
+
+            <div class="form-footer">
+                Already have a worker account? <a href="/worker/login">Login here</a>
+            </div>
+        </div>
+    </main>
+
+</body>
+</html>

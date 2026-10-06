@@ -4,47 +4,383 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Taskmate Pro - Worker Portal</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Base Styles */
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        }
+
+        body {
+            background-color: #f5f5f4;
+            color: #292524;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Header */
+        header {
+            background-color: #1c1917;
+            color: #ffffff;
+            padding: 1rem 1.5rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+
+        .header-brand {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .brand-logo {
+            color: #2dd4bf;
+            font-weight: bold;
+            font-size: 1.25rem;
+            text-decoration: none;
+            transition: color 0.2s;
+        }
+
+        .brand-logo:hover {
+            color: #5eead4;
+        }
+
+        .badge-dashboard {
+            font-size: 0.75rem;
+            background-color: #292524;
+            color: #d6d3d1;
+            padding: 0.25rem 0.625rem;
+            border-radius: 9999px;
+            border: 1px solid #44403c;
+        }
+
+        .header-status {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            font-size: 0.875rem;
+        }
+
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .pulse-dot {
+            width: 0.625rem;
+            height: 0.625rem;
+            border-radius: 9999px;
+            background-color: #10b981;
+        }
+
+        .logout-link {
+            color: #fb7185;
+            font-weight: 500;
+            text-decoration: none;
+            transition: color 0.2s;
+        }
+
+        .logout-link:hover {
+            color: #f43f5e;
+        }
+
+        /* Container Layout */
+        main {
+            flex: 1;
+            max-width: 64rem;
+            width: 100%;
+            margin: 0 auto;
+            padding: 1.5rem 1rem;
+        }
+
+        /* Profile Banner Card */
+        .card {
+            background-color: #ffffff;
+            border: 1px solid #e7e5e4;
+            border-radius: 1rem;
+            padding: 1.5rem;
+            box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+            margin-bottom: 2rem;
+        }
+
+        .profile-banner {
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 1rem;
+        }
+
+        .profile-title {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            margin-bottom: 0.25rem;
+        }
+
+        .profile-title h2 {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: #1c1917;
+        }
+
+        .skill-badge {
+            padding: 0.25rem 0.75rem;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            background-color: #ccfbf1;
+            color: #115e59;
+            border: 1px solid #99f6e4;
+        }
+
+        .profile-desc {
+            font-size: 0.875rem;
+            color: #57534e;
+            max-width: 42rem;
+        }
+
+        .profile-meta {
+            font-size: 0.75rem;
+            color: #78716c;
+            border-top: 1px solid #f5f5f4;
+            padding-top: 0.75rem;
+            width: 100%;
+        }
+
+        /* Active Job Card */
+        .active-job-card {
+            background-color: #ffffff;
+            border: 1px solid #e7e5e4;
+            border-radius: 1rem;
+            overflow: hidden;
+            box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+            margin-bottom: 2rem;
+        }
+
+        .active-job-header {
+            background-color: #1c1917;
+            color: #ffffff;
+            padding: 1.5rem;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 1rem;
+        }
+
+        .active-badge {
+            font-size: 0.75rem;
+            background-color: #10b981;
+            color: #1c1917;
+            font-weight: 700;
+            padding: 0.25rem 0.625rem;
+            border-radius: 9999px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .payout-amount {
+            font-size: 1.875rem;
+            font-weight: 800;
+            color: #2dd4bf;
+        }
+
+        .active-job-body {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 1.5rem;
+            padding: 1.5rem;
+        }
+
+        .map-box {
+            width: 100%;
+            height: 16rem;
+            border-radius: 0.75rem;
+            overflow: hidden;
+            border: 1px solid #e7e5e4;
+            margin-top: 0.5rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .btn-map {
+            display: block;
+            text-align: center;
+            background-color: #f5f5f4;
+            color: #292524;
+            font-size: 0.75rem;
+            font-weight: 600;
+            padding: 0.625rem;
+            border-radius: 0.5rem;
+            border: 1px solid #d6d3d1;
+            text-decoration: none;
+            transition: background-color 0.2s;
+        }
+
+        .btn-map:hover {
+            background-color: #e7e5e4;
+        }
+
+        .status-box {
+            padding: 1rem;
+            background-color: #ccfbf1;
+            border: 1px solid #99f6e4;
+            border-radius: 0.75rem;
+            margin-top: 0.75rem;
+        }
+
+        /* Buttons & Actions */
+        .btn-primary {
+            width: 100%;
+            background-color: #115e59;
+            color: #ffffff;
+            font-weight: 700;
+            padding: 0.75rem 1.5rem;
+            border-radius: 0.75rem;
+            border: none;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+
+        .btn-primary:hover {
+            background-color: #134e4a;
+        }
+
+        .btn-warning {
+            width: 100%;
+            background-color: #f59e0b;
+            color: #ffffff;
+            font-weight: 700;
+            padding: 0.875rem;
+            border-radius: 0.75rem;
+            border: none;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+
+        .btn-warning:hover {
+            background-color: #d97706;
+        }
+
+        .btn-success {
+            width: 100%;
+            background-color: #059669;
+            color: #ffffff;
+            font-weight: 700;
+            padding: 0.875rem;
+            border-radius: 0.75rem;
+            border: none;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+
+        .btn-success:hover {
+            background-color: #047857;
+        }
+
+        /* Responsive Media Queries */
+        @media (min-width: 768px) {
+            main {
+                padding: 2.5rem;
+            }
+
+            .profile-banner {
+                flex-direction: row;
+                align-items: center;
+            }
+
+            .profile-meta {
+                border-top: none;
+                padding-top: 0;
+                width: auto;
+                text-align: right;
+            }
+
+            .active-job-header {
+                flex-direction: row;
+                align-items: center;
+            }
+
+            .active-job-body {
+                grid-template-columns: 1fr 1fr;
+            }
+
+            .job-card {
+                flex-direction: row;
+                align-items: center;
+            }
+
+            .btn-accept {
+                width: auto;
+            }
+        }
+    </style>
 </head>
-<body class="bg-stone-100 text-stone-800 font-sans min-h-screen flex flex-col">
+<body>
 
     <!-- Header -->
-    <header class="bg-stone-900 text-white py-4 px-6 md:px-12 flex justify-between items-center shadow-md">
-        <div class="flex items-center gap-3">
-            <a href="/" class="text-teal-400 font-bold text-xl hover:text-teal-300">✦ Taskmate Pro</a>
-            <span class="text-xs bg-stone-800 text-stone-300 px-2.5 py-1 rounded-full border border-stone-700">Worker Dashboard</span>
+    <header>
+        <div class="header-brand">
+            <a href="/" class="brand-logo">✦ Taskmate Pro</a>
+            <span class="badge-dashboard">Worker Dashboard</span>
         </div>
-        <div class="flex items-center gap-3 text-sm">
-            <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
-            <span class="font-medium">Active Session</span>
+        <div class="header-status">
+            <div class="status-indicator">
+                <span class="pulse-dot"></span>
+                <span>Active Session</span>
+            </div>
+            <a href="{{ url_for('logout') }}" class="logout-link">Logout</a>
         </div>
     </header>
 
     <!-- Main Container -->
-    <main class="flex-1 max-w-5xl w-full mx-auto p-6 md:p-10">
+    <main>
+
+        <!-- Worker Profile Header Banner -->
+        <div class="card profile-banner">
+            <div>
+                <div class="profile-title">
+                    <h2>Welcome, {{ worker.get('name', 'Worker') }}</h2>
+                    <span class="skill-badge">
+                        {{ worker.get('skills', 'General Service') }}
+                    </span>
+                </div>
+                <p class="profile-desc">
+                    {{ worker.get('description', 'No service bio provided.') }}
+                </p>
+            </div>
+            <div class="profile-meta">
+                <p><strong>Account ID:</strong> {{ session.get('user') }}</p>
+                <p><strong>Role:</strong> Verified Service Partner</p>
+            </div>
+        </div>
 
         <!-- Active Accepted Job View -->
         {% if active_job %}
-        <div class="bg-white border border-stone-200 rounded-2xl shadow-sm overflow-hidden mb-8">
-            <div class="bg-stone-900 text-white p-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div class="active-job-card">
+            <div class="active-job-header">
                 <div>
-                    <span class="text-xs bg-emerald-500 text-stone-900 font-bold px-2.5 py-1 rounded-full uppercase tracking-wider">Active Job</span>
-                    <h1 class="text-2xl font-bold mt-2">{{ active_job.title }}</h1>
-                    <p class="text-stone-400 text-sm">📍 {{ active_job.location }}</p>
+                    <span class="active-badge">Active Job</span>
+                    <h1 style="font-size: 1.5rem; font-weight: bold; margin-top: 0.5rem;">{{ active_job.title }}</h1>
+                    <p style="color: #a8a29e; font-size: 0.875rem;">📍 {{ active_job.location }}</p>
                 </div>
-                <div class="text-right">
-                    <p class="text-xs text-stone-400">Total Payout</p>
-                    <p class="text-3xl font-extrabold text-teal-400">₹{{ active_job.budget }}</p>
+                <div style="text-align: right;">
+                    <p style="font-size: 0.75rem; color: #a8a29e;">Total Payout</p>
+                    <p class="payout-amount">₹{{ active_job.budget }}</p>
                 </div>
             </div>
 
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 p-6">
+            <div class="active-job-body">
                 <!-- Navigation & Map -->
-                <div class="space-y-4">
-                    <h3 class="font-bold text-stone-900 flex items-center gap-2">
-                        <span>🗺️</span> Live Navigation
-                    </h3>
-                    <div class="w-full h-64 rounded-xl overflow-hidden border border-stone-200 shadow-inner">
+                <div>
+                    <h3 style="font-weight: bold; color: #1c1917;">🗺️ Live Navigation</h3>
+                    <div class="map-box">
                         <iframe
                             width="100%"
                             height="100%"
@@ -56,36 +392,36 @@
                     </div>
                     <a href="https://www.google.com/maps/dir/?api=1&destination={{ active_job.location | urlencode }}" 
                        target="_blank" 
-                       class="block text-center bg-stone-100 hover:bg-stone-200 text-stone-800 text-xs font-semibold py-2.5 rounded-lg border border-stone-300 transition">
+                       class="btn-map">
                         Open in Google Maps App ↗
                     </a>
                 </div>
 
                 <!-- Job Controls & Status -->
-                <div class="flex flex-col justify-between space-y-4">
-                    <div class="space-y-3">
-                        <h3 class="font-bold text-stone-900">Task Details</h3>
-                        <p class="text-sm text-stone-600 bg-stone-50 p-4 rounded-xl border border-stone-100">
+                <div style="display: flex; flex-direction: column; justify-content: space-between;">
+                    <div>
+                        <h3 style="font-weight: bold; color: #1c1917; margin-bottom: 0.5rem;">Task Details</h3>
+                        <p style="font-size: 0.875rem; color: #44403c; background-color: #fafaf9; padding: 1rem; border-radius: 0.75rem; border: 1px solid #f5f5f4;">
                             {{ active_job.description }}
                         </p>
-                        <div class="p-4 bg-teal-50 border border-teal-100 rounded-xl">
-                            <p class="text-xs text-teal-800 font-semibold">Current Status:</p>
-                            <p class="text-lg font-bold text-teal-900" id="worker-status-display">{{ current_status }}</p>
+                        <div class="status-box">
+                            <p style="font-size: 0.75rem; color: #115e59; font-weight: 600;">Current Status:</p>
+                            <p style="font-size: 1.125rem; font-weight: bold; color: #134e4a;" id="worker-status-display">{{ current_status }}</p>
                         </div>
                     </div>
 
                     <!-- Workflow Buttons -->
-                    <div class="space-y-2 pt-4">
+                    <div style="margin-top: 1rem;">
                         {% if current_status == "Worker On The Way" or current_status == "Assigned" %}
-                        <button onclick="updateJobStatus('Work In Progress')" class="w-full bg-amber-500 hover:bg-amber-600 text-white font-bold py-3.5 rounded-xl shadow transition">
+                        <button onclick="updateJobStatus('Work In Progress')" class="btn-warning">
                             ▶ Start Work
                         </button>
                         {% elif current_status == "Work In Progress" %}
-                        <button onclick="updateJobStatus('Completed')" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3.5 rounded-xl shadow transition">
+                        <button onclick="updateJobStatus('Completed')" class="btn-success">
                             ✓ Mark Job Completed
                         </button>
                         {% elif current_status == "Completed" %}
-                        <div class="bg-emerald-100 border border-emerald-300 text-emerald-900 p-4 rounded-xl text-center font-bold">
+                        <div style="background-color: #d1fae5; border: 1px solid #6ee7b7; color: #065f46; padding: 1rem; border-radius: 0.75rem; text-align: center; font-weight: bold;">
                             🎉 Job Completed! Payout of ₹{{ active_job.budget }} Released to Your Account.
                         </div>
                         {% endif %}
@@ -96,32 +432,30 @@
         {% endif %}
 
         <!-- Available Jobs Section -->
-        <div class="flex justify-between items-center mb-6">
-            <div>
-                <h2 class="text-xl font-bold text-stone-900">Available Nearby Requests</h2>
-                <p class="text-stone-500 text-sm">Accept jobs in your neighborhood to earn.</p>
-            </div>
+        <div style="margin-bottom: 1.5rem;">
+            <h2 style="font-size: 1.25rem; font-weight: bold; color: #1c1917;">Available Nearby Requests</h2>
+            <p style="color: #78716c; font-size: 0.875rem;">Accept jobs in your neighborhood to earn.</p>
         </div>
 
-        <div class="space-y-4">
+        <div style="display: flex; flex-direction: column; gap: 1rem;">
             {% for task in tasks %}
-            <div class="bg-white border border-stone-200 rounded-2xl p-6 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
-                <div class="space-y-2 flex-1">
-                    <div class="flex items-center gap-3">
-                        <span class="px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-800">
+            <div class="card job-card" style="display: flex; flex-direction: column; justify-content: space-between; gap: 1.5rem; margin-bottom: 0;">
+                <div style="flex: 1;">
+                    <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem;">
+                        <span style="padding: 0.125rem 0.625rem; border-radius: 9999px; font-size: 0.75rem; font-weight: bold; background-color: #fef3c7; color: #92400e;">
                             {{ task.urgency or 'Standard' }} Urgency
                         </span>
-                        <span class="text-xs text-stone-400">Posted {{ task.time_posted }}</span>
+                        <span style="font-size: 0.75rem; color: #a8a29e;">Posted {{ task.time_posted }}</span>
                     </div>
-                    <h3 class="text-lg font-bold text-stone-900">{{ task.title }}</h3>
-                    <p class="text-sm text-stone-600">{{ task.description }}</p>
-                    <div class="flex items-center gap-4 text-xs font-medium text-stone-500">
+                    <h3 style="font-size: 1.125rem; font-weight: bold; color: #1c1917; margin-bottom: 0.25rem;">{{ task.title }}</h3>
+                    <p style="font-size: 0.875rem; color: #57534e; margin-bottom: 0.5rem;">{{ task.description }}</p>
+                    <div style="display: flex; gap: 1rem; font-size: 0.75rem; font-weight: 500; color: #78716c;">
                         <span>📍 {{ task.location }}</span>
                         <span>💰 Payout: <strong>₹{{ task.budget }}</strong></span>
                     </div>
                 </div>
 
-                <button onclick="acceptTask({{ task.id }})" class="w-full md:w-auto bg-teal-800 hover:bg-teal-900 text-white font-bold py-3 px-6 rounded-xl shadow transition">
+                <button onclick="acceptTask({{ task.id }})" class="btn-primary btn-accept">
                     Accept Job
                 </button>
             </div>

@@ -21,3 +21,4 @@ gunicorn
 firebase-admin
 Flask-Mail==0.9.1
 google-genai
+psycopg2-binary

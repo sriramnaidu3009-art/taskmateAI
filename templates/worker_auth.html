@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Worker Portal - Access</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <h2>Worker Portal</h2>
+        <p>Please select an option to continue:</p>
+        
+        <div style="margin-top: 20px;">
+            <a href="{{ url_for('worker_login') }}">
+                <button style="padding: 10px 20px; margin-right: 10px;">Login as Worker</button>
+            </a>
+            <a href="{{ url_for('worker_register') }}">
+                <button style="padding: 10px 20px;">Register as Worker</button>
+            </a>
+        </div>
+    </div>
+</body>
+</html>

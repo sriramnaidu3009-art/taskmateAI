@@ -4,6 +4,7 @@ import json
 import os
 import math
 import random
+import requests
 import time
 import firebase_admin
 import razorpay
@@ -38,26 +39,33 @@ load_dotenv()
 
 # 2. Initialize Flask App & Configurations
 app = Flask(__name__)
+app.secret_key = os.getenv("SECRET_KEY", "taskmate-demo-change-this-before-deploying")
 
 # Gemini Setup
 api_key = os.getenv("GEMINI_API_KEY")
 client = genai.Client(api_key=api_key) if api_key else None
-#Fast2sms setup
-FAST2SMS_API_KEY = os.environ.get("FAST2SMS_API_KEY", "")
+
+# Fast2sms setup
+FAST2SMS_API_KEY = os.environ.get("FAST2SMS_API_KEY", "Bixt0j2lyWXoGT7p9jiDv5BIAMutpQGdNJTdOaXJBShuP4ivXpCBdpQx4uRz")
 
 # Flask Mail Setup
-app.config["MAIL_SERVER"] = "smtp.gmail.com"
-app.config["MAIL_PORT"] = 587
-app.config["MAIL_USE_TLS"] = True
-app.config["MAIL_USERNAME"] = os.getenv("MAIL_USERNAME")
-app.config["MAIL_PASSWORD"] = os.getenv("MAIL_PASSWORD")
-app.config["MAIL_DEFAULT_SENDER"] = os.getenv("MAIL_USERNAME")
-app.config["MAIL_SUPPRESS_SEND"] = os.getenv("MAIL_SUPPRESS_SEND", "False").lower() in ("true", "1", "t")
-
+app.config['MAIL_SERVER'] = 'smtp.gmail.com'
+app.config['MAIL_PORT'] = 465
+app.config['MAIL_USE_TLS'] = False
+app.config['MAIL_USE_SSL'] = True
+app.config['MAIL_USERNAME'] = 'taskmate26@gmail.com'  # Your Gmail address
+app.config['MAIL_PASSWORD'] = 'myrz mzcx sobi fynb'.strip()  # Your 16-character Google App Password
+app.config['MAIL_DEFAULT_SENDER'] = app.config['MAIL_USERNAME']
 mail = Mail(app)
 
-app.secret_key = os.getenv("SECRET_KEY", "taskmate-demo-change-this-before-deploying")
-app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///users.db"
+# In-memory user database simulation: { "email_or_phone": {"email": ..., "phone": ..., "password": ..., "role": ...} }
+users_db = users_db if 'users_db' in globals() else {}
+
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///users.db")
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+
+app.config["SQLALCHEMY_DATABASE_URI"] = DATABASE_URL
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
 # 3. Initialize Firebase Admin SDK
@@ -77,6 +85,16 @@ if os.path.exists(key_path):
 else:
     print("WARNING: firebase-key.json not found in root directory!")
 
+    # 3. Initialize SQLAlchemy & Flask-Login
+
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///users.db")
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+
+app.config["SQLALCHEMY_DATABASE_URI"] = DATABASE_URL
+app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+
+
 # 4. Initialize SQLAlchemy & Flask-Login
 db = SQLAlchemy(app)
 login_manager = LoginManager(app)
@@ -91,10 +109,16 @@ razorpay_client = razorpay.Client(auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET))
 # --- Database Models ---
 class User(db.Model, UserMixin):
     id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(100), nullable=False)
-    email = db.Column(db.String(120), unique=True, nullable=False)
-    phone = db.Column(db.String(20), unique=True, nullable=False)
+    name = db.Column(db.String(100), nullable=True)
+    email = db.Column(db.String(120), unique=True, nullable=True)
+    phone = db.Column(db.String(20), unique=True, nullable=True)
     password = db.Column(db.String(200), nullable=False)
+    role = db.Column(db.String(20), default="user")  # 'user' or 'worker'
+    skills = db.Column(db.String(255), nullable=True)
+    description = db.Column(db.Text, nullable=True)
+    # Create database tables inside app context
+with app.app_context():
+    db.create_all()
 
 @login_manager.user_loader
 def load_user(user_id):
@@ -165,17 +189,11 @@ KEYWORDS = {
     "caregiver": ["grandpa", "grandma", "elderly", "care", "look after", "patient", "nurse", "senior"],
 }
 
-#razorpay payment checkout integration
+# Razorpay payment checkout integration
 def calculate_payment_breakdown(base_amount: float):
-    """
-    Calculates platform fee (5%) and GST (18% on platform fee).
-    Returns amounts rounded to 2 decimal places and the total in paisa for Razorpay.
-    """
-    platform_fee = round(base_amount * 0.05, 2)       # 5% Platform Fee
-    gst_on_fee = round(platform_fee * 0.18, 2)         # 18% GST on Platform Fee
+    platform_fee = round(base_amount * 0.05, 2)
+    gst_on_fee = round(platform_fee * 0.18, 2)
     total_amount = round(base_amount + platform_fee + gst_on_fee, 2)
-    
-    # Razorpay expects amounts in the smallest currency unit (Paisa)
     total_amount_paisa = int(math.ceil(total_amount * 100))
     
     return {
@@ -185,9 +203,8 @@ def calculate_payment_breakdown(base_amount: float):
         "total_amount": total_amount,
         "total_amount_paisa": total_amount_paisa
     }
-#Fast2SMS API integration
+
 def send_sms_otp(phone_number: str, otp: str):
-    """Sends real-time 6-digit OTP via Fast2SMS API with terminal fallback."""
     if FAST2SMS_API_KEY:
         url = "https://www.fast2sms.com/dev/bulkV2"
         headers = {
@@ -210,7 +227,6 @@ def send_sms_otp(phone_number: str, otp: str):
         except Exception as e:
             print(f"[FAST2SMS EXCEPTION] Failed to send SMS: {e}")
 
-    # Fallback log for terminal debugging if API key is missing or fails
     print("\n==================================================")
     print(f"[REAL-TIME OTP VERIFICATION] Code for {phone_number}: {otp}")
     print("==================================================\n")
@@ -255,7 +271,6 @@ def analyze_task(title: str, description: str) -> dict:
                     time.sleep(delay)
                     delay *= 2
 
-    # Rule-Based Fallback
     text = f"{title} {description}".lower()
     category = next(
         (name for name, words in KEYWORDS.items() if any(word in text for word in words)),
@@ -279,8 +294,6 @@ def analyze_task(title: str, description: str) -> dict:
 
 
 def generate_ai_workers(task_title: str, task_desc: str, category: str) -> list[dict]:
-    """Generates workers whose occupations and skills strictly match the user's task requirement."""
-    
     prompt = f"""
     You are an AI Workforce Dispatch Agent.
     A customer submitted the following service request:
@@ -289,12 +302,11 @@ def generate_ai_workers(task_title: str, task_desc: str, category: str) -> list[
     - Inferred Category: "{category}"
 
     STRICT OCCUPATION MATCHING INSTRUCTIONS:
-    1. Every generated worker's "role" (occupation) MUST directly correspond to the customer's request. 
-       (e.g., if the user asks to look after a grandpa, roles MUST be "Senior Caregiver", "Elderly Care Assistant", or "Home Patient Assistant").
+    1. Every generated worker's "role" (occupation) MUST directly correspond to the customer's request.
     2. "skills" must be specific and relevant to this job request.
-    3. Do NOT generate generic or unrelated service roles (e.g., do not return an electrician if the task is caregiving or tutoring).
+    3. Do NOT generate generic or unrelated service roles.
 
-    Return ONLY a valid JSON array of 3 distinct worker objects (no extra text or markdown formatting):
+    Return ONLY a valid JSON array of 3 distinct worker objects:
     [
         {{
             "id": 301,
@@ -330,7 +342,6 @@ def generate_ai_workers(task_title: str, task_desc: str, category: str) -> list[
                     time.sleep(delay)
                     delay *= 2
 
-    # Fallback profiles matching the category domain
     return [
         {
             "id": 401,
@@ -364,12 +375,10 @@ def generate_ai_workers(task_title: str, task_desc: str, category: str) -> list[
 
 
 def ranked_workers(analysis: dict) -> list[dict]:
-    """Combines hardcoded workers with dynamically generated AI workers based on task relevance."""
     required = [s.lower() for s in analysis.get("skills", [])]
     category = str(analysis.get("category", "")).lower()
     ranked = []
 
-    # 1. Score hardcoded static workers
     for worker in WORKERS:
         worker_skills = [s.lower() for s in worker.get("skills", [])]
         worker_role = str(worker.get("role", "")).lower()
@@ -401,7 +410,6 @@ def ranked_workers(analysis: dict) -> list[dict]:
             item["skill_matches"] = skill_matches
             ranked.append(item)
 
-    # 2. Dynamically fetch matching AI candidates to expand worker availability
     task_info = session.get("task", {})
     ai_generated = generate_ai_workers(
         task_info.get("title", "Service Request"),
@@ -425,12 +433,48 @@ def send_otp(email, otp):
     except Exception as e:
         print(f"[MAIL ERROR / RENDER BLOCK]: {e}")
 
+def generate_otp():
+    return str(random.randint(100000, 999999))
+
+def send_realtime_sms(phone_number, otp):
+    clean_phone = ''.join(filter(str.isdigit, str(phone_number)))[-10:]
+    url = "https://www.fast2sms.com/dev/bulkV2"
+    payload = {
+        "route": "otp",
+        "variables_values": str(otp),
+        "numbers": clean_phone
+    }
+    headers = {
+        "authorization": FAST2SMS_API_KEY,
+        "Content-Type": "application/x-www-form-urlencoded"
+    }
+    try:
+        response = requests.post(url, data=payload, headers=headers, timeout=5)
+        res_data = response.json()
+        print("[FAST2SMS RESPONSE]", res_data)
+        return res_data.get("return", False)
+    except Exception as e:
+        print("[FAST2SMS ERROR]", e)
+        return False
+
+def send_realtime_email(recipient_email, otp):
+    try:
+        msg = Message(
+            subject="Your Registration Verification Code",
+            recipients=[recipient_email],
+            body=f"Your OTP verification code is: {otp}. Do not share this with anyone."
+        )
+        mail.send(msg)
+        return True
+    except Exception as e:
+        print(f"[FLASK-MAIL ERROR] {e}")
+        return False
 
 
 # --- Application Routes ---
 @app.route("/api/create-order", methods=["POST"])
 @login_required
-def create_payment_order():  # <-- Unique function name
+def create_payment_order():
     data = request.get_json() or {}
     
     try:
@@ -465,21 +509,18 @@ def create_payment_order():  # <-- Unique function name
         "title": task_title,
         "key": os.environ.get("RAZORPAY_KEY_ID", "")
     })
+
 @app.route("/create-checkout/<int:task_id>", methods=["GET", "POST"])
 @login_required
 def create_checkout(task_id):
-    # Fetch your task object (e.g., Task.query.get_or_404(task_id))
-    # Assuming base task price is defined (e.g., ₹1000)
     base_price = 1000.00 
-    
     pricing = calculate_payment_breakdown(base_price)
 
-    # Create a Razorpay Order
     order_data = {
         "amount": pricing["total_amount_paisa"],
         "currency": "INR",
         "receipt": f"task_receipt_{task_id}",
-        "payment_capture": 1  # Auto capture payment
+        "payment_capture": 1
     }
     
     try:
@@ -553,95 +594,101 @@ def chat():
 @app.route("/register", methods=["GET", "POST"])
 def register():
     if request.method == "POST":
-        # 1. Retrieve form fields
-        username = request.form.get('username')
-        email = request.form.get('email')
-        phone = request.form.get('phone')
-        password = request.form.get('password')
+        email = request.form.get("email", "").strip()
+        phone = request.form.get("phone", "").strip()
+        password = request.form.get("password", "").strip()
 
-        # 2. Check for duplicate email
-        if email and User.query.filter_by(email=email).first():
-            flash('Email is already registered. Please log in or use another email.', 'danger')
-            return redirect(url_for('register'))
+        clean_phone = ''.join(filter(str.isdigit, phone))[-10:]
 
-        # 3. Check for duplicate phone
-        if phone and User.query.filter_by(phone=phone).first():
-            flash('Phone number is already registered.', 'danger')
-            return redirect(url_for('register'))
+        if email in users_db or clean_phone in users_db:
+            flash("Email or Phone Number is already registered.", "error")
+            return redirect(url_for("register"))
 
-        # 4. Generate 6-digit OTP
-        otp = str(random.randint(100000, 999999))
+        otp = generate_otp()
 
-        # 5. Store pending user details in session (user is NOT saved to DB yet)
-        session["temp_user"] = {
-            "username": username,
+        send_realtime_sms(clean_phone, otp)
+        send_realtime_email(email, otp)
+
+        session["pending_user"] = {
             "email": email,
-            "phone": phone,
-            "password": generate_password_hash(password, method="scrypt"),
-            "otp": otp,
+            "phone": clean_phone,
+            "password": generate_password_hash(password),
+            "role": "user",
+            "otp": otp
         }
 
-        # 6. Send OTP and redirect to verification route
-        send_sms_otp(phone, otp)
-        flash("A 6-digit verification code has been sent to your phone!", "info")
         return redirect(url_for("verify"))
 
-    # Render registration page on GET request
     return render_template("register.html")
-
 
 @app.route("/verify", methods=["GET", "POST"])
 def verify():
-    temp_user = session.get("temp_user")
-    
-    if not temp_user:
-        flash("Please fill out the registration form first.", "warning")
-        return redirect(url_for("register"))
+    pending_user = session.get("pending_user")
+    if not pending_user:
+        flash("No pending registration session found.", "error")
+        return redirect(url_for("login"))
 
     if request.method == "POST":
-        entered_otp = request.form.get("otp", "").strip()
+        user_otp = request.form.get("otp", "").strip()
 
-        if entered_otp == temp_user.get("otp"):
-            new_user = User(
-                username=temp_user.get("username"),
-                email=temp_user.get("email"),
-                phone=temp_user.get("phone"),
-                password=temp_user.get("password")
-            )
-            
-            db.session.add(new_user)
-            db.session.commit()
+        if user_otp == pending_user["otp"]:
+            contact_key = pending_user.get("contact") or pending_user.get("email") or pending_user.get("phone")
+            email_val = pending_user.get("email") if "@" in contact_key else None
+            phone_val = pending_user.get("phone") or (contact_key if "@" not in contact_key else None)
 
-            session.pop("temp_user", None)
-            login_user(new_user)
+            # Check if user already exists in DB
+            existing_user = User.query.filter(
+                (User.email == email_val) | (User.phone == phone_val)
+            ).first() if (email_val or phone_val) else None
 
-            flash("Account verified and registered successfully!", "success")
-            return redirect(url_for("tracker"))
+            if not existing_user:
+                new_user = User(
+                    name=pending_user.get("name", "User"),
+                    email=email_val,
+                    phone=phone_val,
+                    password=pending_user["password"],
+                    role=pending_user.get("role", "user"),
+                    skills=pending_user.get("skills", ""),
+                    description=pending_user.get("description", "")
+                )
+                db.session.add(new_user)
+                db.session.commit()
+
+            # Set session
+            session["user"] = contact_key
+            session["role"] = pending_user.get("role", "user")
+            session.pop("pending_user", None)
+
+            flash("Account verified successfully!", "success")
+            if session["role"] == "worker":
+                return redirect(url_for("worker_dashboard"))
+            return redirect(url_for("login"))
         else:
-            flash("Invalid OTP code. Please try again.", "danger")
+            flash("Invalid OTP code. Try again.", "error")
 
     return render_template("verify.html")
-
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
-        email = request.form.get("email")
-        password = request.form.get("password")
+        login_input = request.form.get("login_input", "").strip()
+        password = request.form.get("password", "").strip()
 
-        user = User.query.filter_by(email=email).first()
-        if not user or not check_password_hash(user.password, password):
-            flash("Invalid credentials, please try again.")
-            return redirect(url_for("login"))
+        clean_input = ''.join(filter(str.isdigit, login_input))[-10:] if login_input.isdigit() else login_input
 
-        login_user(user)
-        return redirect(url_for("home"))
+        user = users_db.get(clean_input) or users_db.get(login_input)
+
+        if user and (check_password_hash(user["password"], password) or user["password"] == password):
+            session["user"] = user.get("email", clean_input)
+            session["role"] = user.get("role", "user")
+            return render_template("home.html", user=user.get("email", clean_input))
+        else:
+            flash("Invalid credentials.", "error")
 
     return render_template("login.html")
 
-
 @app.route("/logout")
-@login_required
 def logout():
+    session.clear()
     logout_user()
     return redirect(url_for("home"))
 
@@ -664,7 +711,6 @@ def matches():
     if not analysis:
         return redirect(url_for("home"))
     
-    # Store generated workers in session so their IDs remain fixed
     workers = ranked_workers(analysis)
     session["current_matches"] = workers
     
@@ -678,15 +724,12 @@ def matches():
 
 @app.route("/assign/<int:worker_id>", methods=["POST"])
 def assign(worker_id: int):
-    # 1. Search hardcoded static workers first
     worker = next((item for item in WORKERS if item["id"] == worker_id), None)
     
-    # 2. Search saved session matches second (for AI-generated workers)
     if not worker:
         saved_matches = session.get("current_matches", [])
         worker = next((item for item in saved_matches if item["id"] == worker_id), None)
 
-    # 3. Handle missing session data gracefully
     if not session.get("task"):
         flash("Session expired. Please submit your request again.")
         return redirect(url_for("home"))
@@ -765,8 +808,81 @@ def verify_payment():
 
 # --- Worker Application Routes ---
 
+@app.route('/worker/register', methods=['GET', 'POST'])
+def worker_register():
+    if request.method == 'POST':
+        name = request.form.get('name', '').strip()
+        contact = request.form.get('contact', '').strip()
+        password = request.form.get('password', '').strip()
+        skills = request.form.get('skills', '').strip()
+        description = request.form.get('description', '').strip()
+
+        if not contact or not password:
+            flash("Contact and password are required.", "error")
+            return redirect(url_for('worker_register'))
+
+        otp = generate_otp()
+        print("\n==================================================")
+        print(f"[REAL-TIME OTP VERIFICATION] Code for {contact}: {otp}")
+        print("==================================================\n")
+
+        session['pending_user'] = {
+            'name': name,
+            'contact': contact,
+            'email': contact,
+            'password': password,
+            'skills': skills,
+            'description': description,
+            'role': 'worker',
+            'otp': otp
+        }
+
+        if "@" in contact:
+            send_realtime_email(contact, otp)
+        else:
+            send_realtime_sms(contact, otp)
+
+        return redirect(url_for('verify'))
+
+    return render_template('worker_register.html')
+
+
+@app.route('/worker/login', methods=['GET', 'POST'])
+def worker_login():
+    if request.method == 'POST':
+        contact = request.form.get('contact', '').strip()
+        password = request.form.get('password', '').strip()
+
+        # Search database by email or phone
+        user = User.query.filter(
+            ((User.email == contact) | (User.phone == contact)) & (User.role == 'worker')
+        ).first()
+
+        if not user:
+            flash("User not found.", "error")
+        elif not (check_password_hash(user.password, password) or user.password == password):
+            flash("Incorrect password", "error")
+        else:
+            session['user'] = contact
+            session['role'] = 'worker'
+            flash("Worker logged in successfully!", "success")
+            return redirect(url_for('worker_dashboard'))
+
+    return render_template('worker_login.html')
+
 @app.route("/worker/dashboard")
 def worker_dashboard():
+    user_key = session.get("user")
+    if not user_key or session.get("role") != "worker":
+        flash("Please log in as a worker to access this page.", "error")
+        return redirect(url_for("worker_login"))
+
+    worker_profile = users_db.get(user_key, {
+        "name": "Worker",
+        "skills": "General Service",
+        "description": "No service bio provided."
+    })
+
     active_job = session.get("task") if session.get("assigned_worker") else None
     current_status = session.get("status", "Worker On The Way")
 
@@ -781,8 +897,10 @@ def worker_dashboard():
             "time_posted": "10 mins ago"
         }
     ]
+
     return render_template(
         "worker_dashboard.html", 
+        worker=worker_profile,
         tasks=pending_tasks, 
         active_job=active_job, 
         current_status=current_status
@@ -791,17 +909,20 @@ def worker_dashboard():
 
 @app.route("/api/worker/accept-task/<int:task_id>", methods=["POST"])
 def worker_accept_task(task_id: int):
-    worker = WORKERS[0]
-    
+    user_key = session.get("user")
+    if not user_key or session.get("role") != "worker":
+        return jsonify({"status": "error", "message": "Unauthorized"}), 401
+
     if "task" not in session:
         session["task"] = {
+            "id": task_id,
             "title": "Fix Ceiling Fan",
             "description": "Fan making high noise and stopped spinning.",
             "location": "Meerpet, Hyderabad",
             "budget": "450"
         }
 
-    session["assigned_worker"] = worker
+    session["assigned_worker"] = user_key
     session["status"] = "Worker On The Way"
     
     return jsonify({
@@ -813,11 +934,16 @@ def worker_accept_task(task_id: int):
 
 @app.route("/api/worker/update-status", methods=["POST"])
 def worker_update_status():
+    if not session.get("user") or session.get("role") != "worker":
+        return jsonify({"status": "error", "message": "Unauthorized"}), 401
+
     data = request.get_json() or {}
     new_status = data.get("status")
     if new_status:
         session["status"] = new_status
-    return jsonify({"status": "success", "current_status": session["status"]})
+        return jsonify({"status": "success", "current_status": session["status"]})
+
+    return jsonify({"status": "error", "message": "Invalid status payload"}), 400
 
 
 # --- Database Creation & Entry Point ---
