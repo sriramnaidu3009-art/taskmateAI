@@ -91,6 +91,66 @@
     }
 </style>
 
+<!-- Firebase SDKs -->
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+
+<!-- Invisible reCAPTCHA container -->
+<div id="recaptcha-container"></div>
+
+<script>
+  // 1. Initialize Firebase Config (From Firebase Project Settings -> General)
+  const firebaseConfig = {
+    apiKey: "YOUR_FIREBASE_API_KEY",
+    authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
+    projectId: "YOUR_PROJECT_ID",
+    storageBucket: "YOUR_PROJECT_ID.appspot.com",
+    messagingSenderId: "YOUR_SENDER_ID",
+    appId: "YOUR_APP_ID"
+  };
+
+  firebase.initializeApp(firebaseConfig);
+  const auth = firebase.auth();
+
+  // 2. Set up invisible reCAPTCHA verifier
+  window.recaptchaVerifier = new firebase.auth.RecaptchaVerifier('recaptcha-container', {
+    'size': 'invisible',
+    'callback': (response) => {
+      // reCAPTCHA solved
+    }
+  });
+
+  // 3. Send OTP Code via SMS
+  function sendOTP(phoneNumber) {
+    const appVerifier = window.recaptchaVerifier;
+    auth.signInWithPhoneNumber(phoneNumber, appVerifier)
+      .then((confirmationResult) => {
+        window.confirmationResult = confirmationResult;
+        alert("OTP code sent successfully to " + phoneNumber);
+      })
+      .catch((error) => {
+        console.error("SMS Error:", error);
+        alert("Error sending SMS: " + error.message);
+      });
+  }
+
+  // 4. Verify Entered OTP Code
+  function verifyOTP(otpCode) {
+    if (!window.confirmationResult) {
+      alert("Please request an OTP first.");
+      return;
+    }
+    window.confirmationResult.confirm(otpCode)
+      .then((result) => {
+        // Phone number verified! Post ID token or confirmation to Flask backend
+        document.getElementById("verification-form").submit();
+      })
+      .catch((error) => {
+        alert("Invalid OTP code. Please try again.");
+      });
+  }
+</script>
+
 <div class="verify-wrapper">
     <div class="verify-card">
         <h2 class="verify-title">Enter Verification Code</h2>

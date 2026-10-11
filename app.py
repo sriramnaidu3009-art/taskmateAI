@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 import json
-import os
 import math
+import os
 import random
-import requests
 import time
 import firebase_admin
 import razorpay
+import requests
+from sendgrid import SendGridAPIClient
+from sendgrid.helpers.mail import Mail
+from dotenv import load_dotenv
+from firebase_admin import auth as firebase_auth
 from firebase_admin import credentials, firestore
 from flask import (
     Flask,
@@ -20,19 +24,17 @@ from flask import (
     url_for,
 )
 from flask_login import (
-    UserMixin,
     LoginManager,
+    UserMixin,
+    current_user,
     login_required,
     login_user,
     logout_user,
-    current_user,
 )
-from flask_mail import Mail, Message
 from flask_sqlalchemy import SQLAlchemy
-from dotenv import load_dotenv
 from google import genai
 from google.genai import types
-from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.security import check_password_hash, generate_password_hash
 
 # 1. Load Environment Variables
 load_dotenv()
@@ -45,22 +47,17 @@ app.secret_key = os.getenv("SECRET_KEY", "taskmate-demo-change-this-before-deplo
 api_key = os.getenv("GEMINI_API_KEY")
 client = genai.Client(api_key=api_key) if api_key else None
 
-# Fast2sms setup
-FAST2SMS_API_KEY = os.environ.get("FAST2SMS_API_KEY", "Bixt0j2lyWXoGT7p9jiDv5BIAMutpQGdNJTdOaXJBShuP4ivXpCBdpQx4uRz")
+# SendGrid API Setup
+SENDGRID_API_KEY = os.getenv("SENDGRID_API_KEY")
+SENDER_EMAIL = os.getenv("MAIL_DEFAULT_SENDER", "taskmate26@gmail.com")
 
-# Flask Mail Setup
-app.config['MAIL_SERVER'] = 'smtp.gmail.com'
-app.config['MAIL_PORT'] = 465
-app.config['MAIL_USE_TLS'] = False
-app.config['MAIL_USE_SSL'] = True
-app.config['MAIL_USERNAME'] = 'taskmate26@gmail.com'  # Your Gmail address
-app.config['MAIL_PASSWORD'] = 'myrz mzcx sobi fynb'.strip()  # Your 16-character Google App Password
-app.config['MAIL_DEFAULT_SENDER'] = app.config['MAIL_USERNAME']
-mail = Mail(app)
+# Fast2SMS Setup
+FAST2SMS_API_KEY = os.environ.get(
+    "FAST2SMS_API_KEY",
+    "Bixt0j2lyWXoGT7p9jiDv5BIAMutpQGdNJTdOaXJBShuP4ivXpCBdpQx4uRz",
+)
 
-# In-memory user database simulation: { "email_or_phone": {"email": ..., "phone": ..., "password": ..., "role": ...} }
-users_db = users_db if 'users_db' in globals() else {}
-
+# Database Setup (External/Render Postgres or local SQLite fallback)
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///users.db")
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
@@ -85,16 +82,6 @@ if os.path.exists(key_path):
 else:
     print("WARNING: firebase-key.json not found in root directory!")
 
-    # 3. Initialize SQLAlchemy & Flask-Login
-
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///users.db")
-if DATABASE_URL.startswith("postgres://"):
-    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
-
-app.config["SQLALCHEMY_DATABASE_URI"] = DATABASE_URL
-app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
-
-
 # 4. Initialize SQLAlchemy & Flask-Login
 db = SQLAlchemy(app)
 login_manager = LoginManager(app)
@@ -116,9 +103,7 @@ class User(db.Model, UserMixin):
     role = db.Column(db.String(20), default="user")  # 'user' or 'worker'
     skills = db.Column(db.String(255), nullable=True)
     description = db.Column(db.Text, nullable=True)
-    # Create database tables inside app context
-with app.app_context():
-    db.create_all()
+
 
 @login_manager.user_loader
 def load_user(user_id):
@@ -186,8 +171,18 @@ KEYWORDS = {
     "plumber": ["tap", "leak", "pipe", "drain", "water", "toilet"],
     "cleaner": ["clean", "cleaning", "dust", "wash"],
     "carpenter": ["wood", "door", "furniture", "shelf", "cabinet"],
-    "caregiver": ["grandpa", "grandma", "elderly", "care", "look after", "patient", "nurse", "senior"],
+    "caregiver": [
+        "grandpa",
+        "grandma",
+        "elderly",
+        "care",
+        "look after",
+        "patient",
+        "nurse",
+        "senior",
+    ],
 }
+
 
 # Razorpay payment checkout integration
 def calculate_payment_breakdown(base_amount: float):
@@ -195,27 +190,24 @@ def calculate_payment_breakdown(base_amount: float):
     gst_on_fee = round(platform_fee * 0.18, 2)
     total_amount = round(base_amount + platform_fee + gst_on_fee, 2)
     total_amount_paisa = int(math.ceil(total_amount * 100))
-    
+
     return {
         "base_amount": base_amount,
         "platform_fee": platform_fee,
         "gst_on_fee": gst_on_fee,
         "total_amount": total_amount,
-        "total_amount_paisa": total_amount_paisa
+        "total_amount_paisa": total_amount_paisa,
     }
+
 
 def send_sms_otp(phone_number: str, otp: str):
     if FAST2SMS_API_KEY:
         url = "https://www.fast2sms.com/dev/bulkV2"
         headers = {
             "authorization": FAST2SMS_API_KEY,
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
         }
-        payload = {
-            "variables_values": otp,
-            "route": "otp",
-            "numbers": phone_number
-        }
+        payload = {"variables_values": otp, "route": "otp", "numbers": phone_number}
         try:
             response = requests.post(url, json=payload, headers=headers, timeout=5)
             res_data = response.json()
@@ -232,8 +224,8 @@ def send_sms_otp(phone_number: str, otp: str):
     print("==================================================\n")
     return False
 
-# --- Helper & AI Functions ---
 
+# --- Helper & AI Functions ---
 def analyze_task(title: str, description: str) -> dict:
     prompt = f"""
     You are an autonomous Task Dispatch AI Agent.
@@ -263,7 +255,9 @@ def analyze_task(title: str, description: str) -> dict:
                     model="gemini-3.8-flash",
                     contents=prompt,
                 )
-                clean_json = response.text.replace("```json", "").replace("```", "").strip()
+                clean_json = (
+                    response.text.replace("```json", "").replace("```", "").strip()
+                )
                 return json.loads(clean_json)
             except Exception as e:
                 print(f"[GEMINI ANALYZE ERROR Attempt {attempt + 1}]: {e}")
@@ -273,7 +267,11 @@ def analyze_task(title: str, description: str) -> dict:
 
     text = f"{title} {description}".lower()
     category = next(
-        (name for name, words in KEYWORDS.items() if any(word in text for word in words)),
+        (
+            name
+            for name, words in KEYWORDS.items()
+            if any(word in text for word in words)
+        ),
         "General Service",
     )
 
@@ -283,7 +281,11 @@ def analyze_task(title: str, description: str) -> dict:
         "duration": "2–4 hours",
         "price_min": 400,
         "price_max": 1000,
-        "urgency": "High" if any(w in text for w in ["urgent", "asap", "today", "immediately"]) else "Standard",
+        "urgency": (
+            "High"
+            if any(w in text for w in ["urgent", "asap", "today", "immediately"])
+            else "Standard"
+        ),
         "summary": f"Service request for: {title or 'Home Assistance'}.",
         "plan": [
             "Confirm service specifications and preferred schedule",
@@ -334,7 +336,9 @@ def generate_ai_workers(task_title: str, task_desc: str, category: str) -> list[
                     model="gemini-3.8-flash",
                     contents=prompt,
                 )
-                clean_json = response.text.replace("```json", "").replace("```", "").strip()
+                clean_json = (
+                    response.text.replace("```json", "").replace("```", "").strip()
+                )
                 return json.loads(clean_json)
             except Exception as e:
                 print(f"[AI WORKER GENERATION ATTEMPT {attempt + 1} FAILED]: {e}")
@@ -384,9 +388,13 @@ def ranked_workers(analysis: dict) -> list[dict]:
         worker_role = str(worker.get("role", "")).lower()
 
         skill_matches = sum(
-            1 for req in required if any(req in w_s or w_s in req for w_s in worker_skills)
+            1
+            for req in required
+            if any(req in w_s or w_s in req for w_s in worker_skills)
         )
-        category_match = 1 if (category in worker_role or worker_role in category) else 0
+        category_match = (
+            1 if (category in worker_role or worker_role in category) else 0
+        )
 
         if skill_matches > 0 or category_match > 0:
             overlap_score = (skill_matches / len(required)) if required else 0.5
@@ -422,31 +430,21 @@ def ranked_workers(analysis: dict) -> list[dict]:
     return combined
 
 
-def send_otp(email, otp):
-    msg = Message(
-        "Your Taskmate AI Verification Code",
-        recipients=[email],
-    )
-    msg.body = f"Your 6-digit verification code is: {otp}"
-    try:
-        mail.send(msg)
-    except Exception as e:
-        print(f"[MAIL ERROR / RENDER BLOCK]: {e}")
-
 def generate_otp():
     return str(random.randint(100000, 999999))
 
+
 def send_realtime_sms(phone_number, otp):
-    clean_phone = ''.join(filter(str.isdigit, str(phone_number)))[-10:]
+    clean_phone = "".join(filter(str.isdigit, str(phone_number)))[-10:]
     url = "https://www.fast2sms.com/dev/bulkV2"
     payload = {
         "route": "otp",
         "variables_values": str(otp),
-        "numbers": clean_phone
+        "numbers": clean_phone,
     }
     headers = {
         "authorization": FAST2SMS_API_KEY,
-        "Content-Type": "application/x-www-form-urlencoded"
+        "Content-Type": "application/x-www-form-urlencoded",
     }
     try:
         response = requests.post(url, data=payload, headers=headers, timeout=5)
@@ -457,17 +455,30 @@ def send_realtime_sms(phone_number, otp):
         print("[FAST2SMS ERROR]", e)
         return False
 
-def send_realtime_email(recipient_email, otp):
+
+def send_realtime_email(recipient_email: str, otp: str) -> bool:
+    if not SENDGRID_API_KEY:
+        print("[SENDGRID ERROR] SENDGRID_API_KEY is missing in environment variables.")
+        return False
+
+    message = Mail(
+        from_email=SENDER_EMAIL,
+        to_emails=recipient_email,
+        subject="Your Registration Verification Code",
+        html_content=f"<strong>Your OTP verification code is: {otp}</strong>. Do not share this with anyone."
+    )
+
     try:
-        msg = Message(
-            subject="Your Registration Verification Code",
-            recipients=[recipient_email],
-            body=f"Your OTP verification code is: {otp}. Do not share this with anyone."
-        )
-        mail.send(msg)
-        return True
+        sg = SendGridAPIClient(SENDGRID_API_KEY)
+        response = sg.send(message)
+        if response.status_code in [200, 201, 202]:
+            print(f"[SENDGRID SUCCESS] OTP sent to {recipient_email}")
+            return True
+        else:
+            print(f"[SENDGRID FAILED] Status Code: {response.status_code}")
+            return False
     except Exception as e:
-        print(f"[FLASK-MAIL ERROR] {e}")
+        print(f"[SENDGRID EXCEPTION] {e}")
         return False
 
 
@@ -476,14 +487,14 @@ def send_realtime_email(recipient_email, otp):
 @login_required
 def create_payment_order():
     data = request.get_json() or {}
-    
+
     try:
         base_price = float(data.get("amount", 0))
     except (ValueError, TypeError):
         return jsonify({"error": "Invalid price"}), 400
 
     task_title = data.get("title", "Custom Service")
-    
+
     if base_price <= 0:
         return jsonify({"error": "Amount must be greater than zero"}), 400
 
@@ -493,7 +504,7 @@ def create_payment_order():
         "amount": pricing["total_amount_paisa"],
         "currency": "INR",
         "receipt": f"order_rcpt_{int(base_price)}",
-        "payment_capture": 1
+        "payment_capture": 1,
     }
 
     try:
@@ -503,26 +514,29 @@ def create_payment_order():
         print(f"[RAZORPAY ERROR] {e}")
         order_id = "mock_order_id"
 
-    return jsonify({
-        "order_id": order_id,
-        "pricing": pricing,
-        "title": task_title,
-        "key": os.environ.get("RAZORPAY_KEY_ID", "")
-    })
+    return jsonify(
+        {
+            "order_id": order_id,
+            "pricing": pricing,
+            "title": task_title,
+            "key": os.environ.get("RAZORPAY_KEY_ID", ""),
+        }
+    )
+
 
 @app.route("/create-checkout/<int:task_id>", methods=["GET", "POST"])
 @login_required
 def create_checkout(task_id):
-    base_price = 1000.00 
+    base_price = 1000.00
     pricing = calculate_payment_breakdown(base_price)
 
     order_data = {
         "amount": pricing["total_amount_paisa"],
         "currency": "INR",
         "receipt": f"task_receipt_{task_id}",
-        "payment_capture": 1
+        "payment_capture": 1,
     }
-    
+
     try:
         razorpay_order = razorpay_client.order.create(data=order_data)
         order_id = razorpay_order["id"]
@@ -535,8 +549,9 @@ def create_checkout(task_id):
         pricing=pricing,
         order_id=order_id,
         razorpay_key_id=RAZORPAY_KEY_ID,
-        task_id=task_id
+        task_id=task_id,
     )
+
 
 @app.route("/", methods=["GET", "POST"])
 def home():
@@ -556,9 +571,14 @@ def home():
 def chat():
     try:
         if not client:
-            return jsonify({
-                "response": "API key missing. Please check GEMINI_API_KEY in your .env file."
-            }), 400
+            return (
+                jsonify(
+                    {
+                        "response": "API key missing. Please check GEMINI_API_KEY in your .env file."
+                    }
+                ),
+                400,
+            )
 
         data = request.get_json() or {}
         prompt = data.get("prompt", "").strip()
@@ -582,9 +602,11 @@ def chat():
                     time.sleep(delay)
                     delay *= 2
 
-        return jsonify({
-            "response": f"I can help you schedule a qualified service provider for your request: '{prompt}'. Enter your task details in the form above to see matched local workers!"
-        })
+        return jsonify(
+            {
+                "response": f"I can help you schedule a qualified service provider for your request: '{prompt}'. Enter your task details in the form above to see matched local workers!"
+            }
+        )
 
     except Exception as e:
         print(f"[CHAT ROUTE CRASH]: {e}")
@@ -598,28 +620,44 @@ def register():
         phone = request.form.get("phone", "").strip()
         password = request.form.get("password", "").strip()
 
-        clean_phone = ''.join(filter(str.isdigit, phone))[-10:]
+        # Clean phone and handle empty values as None for PostgreSQL unique constraints
+        clean_phone = "".join(filter(str.isdigit, phone))[-10:] if phone else None
+        email_val = email if email else None
 
-        if email in users_db or clean_phone in users_db:
+        # Check existing user in DB safely using explicit filters
+        filters = []
+        if email_val:
+            filters.append(User.email == email_val)
+        if clean_phone:
+            filters.append(User.phone == clean_phone)
+
+        existing_user = None
+        if filters:
+            existing_user = User.query.filter(db.or_(*filters)).first()
+
+        if existing_user:
             flash("Email or Phone Number is already registered.", "error")
             return redirect(url_for("register"))
 
         otp = generate_otp()
 
-        send_realtime_sms(clean_phone, otp)
-        send_realtime_email(email, otp)
+        if clean_phone:
+            send_realtime_sms(clean_phone, otp)
+        if email_val:
+            send_realtime_email(email_val, otp)
 
         session["pending_user"] = {
-            "email": email,
+            "email": email_val,
             "phone": clean_phone,
             "password": generate_password_hash(password),
             "role": "user",
-            "otp": otp
+            "otp": otp,
         }
 
         return redirect(url_for("verify"))
 
     return render_template("register.html")
+
 
 @app.route("/verify", methods=["GET", "POST"])
 def verify():
@@ -629,17 +667,38 @@ def verify():
         return redirect(url_for("login"))
 
     if request.method == "POST":
+        id_token = request.form.get("id_token", "").strip()
         user_otp = request.form.get("otp", "").strip()
 
-        if user_otp == pending_user["otp"]:
-            contact_key = pending_user.get("contact") or pending_user.get("email") or pending_user.get("phone")
-            email_val = pending_user.get("email") if "@" in contact_key else None
-            phone_val = pending_user.get("phone") or (contact_key if "@" not in contact_key else None)
+        verified = False
 
-            # Check if user already exists in DB
-            existing_user = User.query.filter(
-                (User.email == email_val) | (User.phone == phone_val)
-            ).first() if (email_val or phone_val) else None
+        if id_token:
+            try:
+                decoded_token = firebase_auth.verify_id_token(id_token)
+                verified = True
+            except Exception as e:
+                flash(f"Firebase verification failed: {str(e)}", "error")
+                return render_template("verify.html")
+
+        elif user_otp and pending_user.get("otp") and user_otp == pending_user["otp"]:
+            verified = True
+        else:
+            flash("Invalid OTP code or token. Try again.", "error")
+            return render_template("verify.html")
+
+        if verified:
+            email_val = pending_user.get("email")
+            phone_val = pending_user.get("phone")
+
+            filters = []
+            if email_val:
+                filters.append(User.email == email_val)
+            if phone_val:
+                filters.append(User.phone == phone_val)
+
+            existing_user = None
+            if filters:
+                existing_user = User.query.filter(db.or_(*filters)).first()
 
             if not existing_user:
                 new_user = User(
@@ -649,42 +708,56 @@ def verify():
                     password=pending_user["password"],
                     role=pending_user.get("role", "user"),
                     skills=pending_user.get("skills", ""),
-                    description=pending_user.get("description", "")
+                    description=pending_user.get("description", ""),
                 )
                 db.session.add(new_user)
                 db.session.commit()
 
-            # Set session
-            session["user"] = contact_key
+            session["user"] = email_val or phone_val
             session["role"] = pending_user.get("role", "user")
             session.pop("pending_user", None)
 
-            flash("Account verified successfully!", "success")
+            flash("Account verified and saved successfully!", "success")
+
             if session["role"] == "worker":
                 return redirect(url_for("worker_dashboard"))
             return redirect(url_for("login"))
-        else:
-            flash("Invalid OTP code. Try again.", "error")
 
     return render_template("verify.html")
+
+
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
         login_input = request.form.get("login_input", "").strip()
         password = request.form.get("password", "").strip()
 
-        clean_input = ''.join(filter(str.isdigit, login_input))[-10:] if login_input.isdigit() else login_input
+        # Extract all digits from the input
+        digits_only = "".join(filter(str.isdigit, login_input))
+        
+        # Get the last 10 digits if it's a phone number, otherwise keep the raw input (for email)
+        clean_input = digits_only[-10:] if len(digits_only) >= 10 else login_input
 
-        user = users_db.get(clean_input) or users_db.get(login_input)
+        # Query database matching either email or the cleaned phone number
+        user = User.query.filter(
+            (User.email == login_input) | (User.phone == clean_input)
+        ).first()
 
-        if user and (check_password_hash(user["password"], password) or user["password"] == password):
-            session["user"] = user.get("email", clean_input)
-            session["role"] = user.get("role", "user")
-            return render_template("home.html", user=user.get("email", clean_input))
+        if not user:
+            flash("User not found.", "error")
+        elif not (
+            check_password_hash(user.password, password) or user.password == password
+        ):
+            flash("Incorrect password", "error")
         else:
-            flash("Invalid credentials.", "error")
+            # Store the user's actual email or ID in session for reliability
+            session["user"] = user.email or user.phone
+            session["role"] = user.role
+            flash("Logged in successfully!", "success")
+            return redirect(url_for("home"))
 
     return render_template("login.html")
+
 
 @app.route("/logout")
 def logout():
@@ -710,10 +783,10 @@ def matches():
     analysis = session.get("analysis")
     if not analysis:
         return redirect(url_for("home"))
-    
+
     workers = ranked_workers(analysis)
     session["current_matches"] = workers
-    
+
     return render_template(
         "matches.html",
         task=session.get("task", {}),
@@ -725,10 +798,12 @@ def matches():
 @app.route("/assign/<int:worker_id>", methods=["POST"])
 def assign(worker_id: int):
     worker = next((item for item in WORKERS if item["id"] == worker_id), None)
-    
+
     if not worker:
         saved_matches = session.get("current_matches", [])
-        worker = next((item for item in saved_matches if item["id"] == worker_id), None)
+        worker = next(
+            (item for item in saved_matches if item["id"] == worker_id), None
+        )
 
     if not session.get("task"):
         flash("Session expired. Please submit your request again.")
@@ -742,20 +817,26 @@ def assign(worker_id: int):
     session["status"] = "Assigned"
     return redirect(url_for("tracker"))
 
+
 @app.route("/tracker", methods=["GET", "POST"])
 def tracker():
-    task = session.get("task", {
-        "title": "Fix Ceiling Fan",
-        "description": "Fan is making noise and stopped spinning.",
-        "location": "Meerpet, Hyderabad",
-        "budget": "450"
-    })
-    
+    task = session.get(
+        "task",
+        {
+            "title": "Fix Ceiling Fan",
+            "description": "Fan is making noise and stopped spinning.",
+            "location": "Meerpet, Hyderabad",
+            "budget": "450",
+        },
+    )
+
     worker = session.get("assigned_worker", WORKERS[0])
-    
+
     if request.method == "POST":
-        session["status"] = request.form.get("status", session.get("status", "Worker On The Way"))
-        
+        session["status"] = request.form.get(
+            "status", session.get("status", "Worker On The Way")
+        )
+
     status = session.get("status", "Worker On The Way")
 
     return render_template(
@@ -807,68 +888,74 @@ def verify_payment():
 
 
 # --- Worker Application Routes ---
-
-@app.route('/worker/register', methods=['GET', 'POST'])
+@app.route("/worker/register", methods=["GET", "POST"])
 def worker_register():
-    if request.method == 'POST':
-        name = request.form.get('name', '').strip()
-        contact = request.form.get('contact', '').strip()
-        password = request.form.get('password', '').strip()
-        skills = request.form.get('skills', '').strip()
-        description = request.form.get('description', '').strip()
+    if request.method == "POST":
+        name = request.form.get("name", "").strip()
+        contact = request.form.get("contact", "").strip()
+        password = request.form.get("password", "").strip()
+        skills = request.form.get("skills", "").strip()
+        description = request.form.get("description", "").strip()
 
         if not contact or not password:
             flash("Contact and password are required.", "error")
-            return redirect(url_for('worker_register'))
+            return redirect(url_for("worker_register"))
 
         otp = generate_otp()
         print("\n==================================================")
         print(f"[REAL-TIME OTP VERIFICATION] Code for {contact}: {otp}")
         print("==================================================\n")
 
-        session['pending_user'] = {
-            'name': name,
-            'contact': contact,
-            'email': contact,
-            'password': password,
-            'skills': skills,
-            'description': description,
-            'role': 'worker',
-            'otp': otp
+        is_email = "@" in contact
+        session["pending_user"] = {
+            "name": name,
+            "contact": contact,
+            "email": contact if is_email else None,
+            "phone": "".join(filter(str.isdigit, contact))[-10:] if not is_email else None,
+            "password": generate_password_hash(password),
+            "skills": skills,
+            "description": description,
+            "role": "worker",
+            "otp": otp,
         }
 
-        if "@" in contact:
+        if is_email:
             send_realtime_email(contact, otp)
         else:
             send_realtime_sms(contact, otp)
 
-        return redirect(url_for('verify'))
+        return redirect(url_for("verify"))
 
-    return render_template('worker_register.html')
+    return render_template("worker_register.html")
 
 
-@app.route('/worker/login', methods=['GET', 'POST'])
+@app.route("/worker/login", methods=["GET", "POST"])
 def worker_login():
-    if request.method == 'POST':
-        contact = request.form.get('contact', '').strip()
-        password = request.form.get('password', '').strip()
+    if request.method == "POST":
+        contact = request.form.get("contact", "").strip()
+        password = request.form.get("password", "").strip()
 
-        # Search database by email or phone
+        clean_contact = "".join(filter(str.isdigit, contact))[-10:] if not "@" in contact else contact
+
+        # Search database by email or phone and worker role
         user = User.query.filter(
-            ((User.email == contact) | (User.phone == contact)) & (User.role == 'worker')
+            ((User.email == clean_contact) | (User.phone == clean_contact)) & (User.role == "worker")
         ).first()
 
         if not user:
             flash("User not found.", "error")
-        elif not (check_password_hash(user.password, password) or user.password == password):
+        elif not (
+            check_password_hash(user.password, password) or user.password == password
+        ):
             flash("Incorrect password", "error")
         else:
-            session['user'] = contact
-            session['role'] = 'worker'
+            session["user"] = contact
+            session["role"] = "worker"
             flash("Worker logged in successfully!", "success")
-            return redirect(url_for('worker_dashboard'))
+            return redirect(url_for("worker_dashboard"))
 
-    return render_template('worker_login.html')
+    return render_template("worker_login.html")
+
 
 @app.route("/worker/dashboard")
 def worker_dashboard():
@@ -877,11 +964,16 @@ def worker_dashboard():
         flash("Please log in as a worker to access this page.", "error")
         return redirect(url_for("worker_login"))
 
-    worker_profile = users_db.get(user_key, {
-        "name": "Worker",
-        "skills": "General Service",
-        "description": "No service bio provided."
-    })
+    clean_key = "".join(filter(str.isdigit, str(user_key)))[-10:] if not "@" in str(user_key) else user_key
+    user_obj = User.query.filter(
+        (User.email == clean_key) | (User.phone == clean_key)
+    ).first()
+
+    worker_profile = {
+        "name": user_obj.name if user_obj else "Worker",
+        "skills": user_obj.skills if user_obj else "General Service",
+        "description": user_obj.description if user_obj else "No service bio provided.",
+    }
 
     active_job = session.get("task") if session.get("assigned_worker") else None
     current_status = session.get("status", "Worker On The Way")
@@ -890,20 +982,24 @@ def worker_dashboard():
         {
             "id": 101,
             "title": session.get("task", {}).get("title", "Fix Ceiling Fan"),
-            "description": session.get("task", {}).get("description", "Fan making high noise"),
-            "location": session.get("task", {}).get("location", "Meerpet, Hyderabad"),
+            "description": session.get("task", {}).get(
+                "description", "Fan making high noise"
+            ),
+            "location": session.get("task", {}).get(
+                "location", "Meerpet, Hyderabad"
+            ),
             "budget": session.get("task", {}).get("budget", "450"),
             "urgency": "High",
-            "time_posted": "10 mins ago"
+            "time_posted": "10 mins ago",
         }
     ]
 
     return render_template(
-        "worker_dashboard.html", 
+        "worker_dashboard.html",
         worker=worker_profile,
-        tasks=pending_tasks, 
-        active_job=active_job, 
-        current_status=current_status
+        tasks=pending_tasks,
+        active_job=active_job,
+        current_status=current_status,
     )
 
 
@@ -919,17 +1015,19 @@ def worker_accept_task(task_id: int):
             "title": "Fix Ceiling Fan",
             "description": "Fan making high noise and stopped spinning.",
             "location": "Meerpet, Hyderabad",
-            "budget": "450"
+            "budget": "450",
         }
 
     session["assigned_worker"] = user_key
     session["status"] = "Worker On The Way"
-    
-    return jsonify({
-        "status": "success",
-        "message": f"Task #{task_id} accepted!",
-        "redirect": url_for("worker_dashboard")
-    })
+
+    return jsonify(
+        {
+            "status": "success",
+            "message": f"Task #{task_id} accepted!",
+            "redirect": url_for("worker_dashboard"),
+        }
+    )
 
 
 @app.route("/api/worker/update-status", methods=["POST"])
@@ -947,8 +1045,7 @@ def worker_update_status():
 
 
 # --- Database Creation & Entry Point ---
-with app.app_context():
-    db.create_all()
-
 if __name__ == "__main__":
+    with app.app_context():
+        db.create_all()
     app.run(debug=True, port=5000)
