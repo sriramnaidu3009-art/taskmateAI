@@ -4,7 +4,7 @@
 {% block content %}
 <!-- Quick Navigation Bar for Multi-Portal Access -->
 <div style="display: flex; justify-content: flex-end; margin-bottom: 1rem;">
-  <a href="/worker/dashboard" class="button shadow" style="background-color: #1c1917; color: #ffffff; border: none; padding: 0.6rem 1.2rem; border-radius: 8px; text-decoration: none; font-size: 0.875rem; font-weight: 600; display: inline-flex; items-center; gap: 0.5rem; transition: background 0.2s;">
+  <a href="/worker/dashboard" class="button shadow" style="background-color: #1c1917; color: #ffffff; border: none; padding: 0.6rem 1.2rem; border-radius: 8px; text-decoration: none; font-size: 0.875rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.5rem; transition: background 0.2s;">
     <span>👷</span> Switch to Worker Portal
   </a>
 </div>
@@ -14,7 +14,8 @@
   <h1>The right person<br>for every task.</h1>
   <p class="intro">Tell us what you need. Taskmate AI understands the job, estimates the work, and finds skilled people nearby.</p>
   
-  <form class="task-form" method="post">
+  <!-- Single Unified Task Form -->
+  <form class="task-form" method="post" action="/">
     <label>What do you need help with?
       <input name="title" required placeholder="e.g. Fix my ceiling fan">
     </label>
@@ -24,16 +25,25 @@
     </label>
     
     <div class="form-row">
+      <!-- Location Field with Hidden Coordinates & Clean User Status -->
       <label>Your location
-        <input name="location" required placeholder="e.g. Indiranagar, Bengaluru">
+        <input type="text" id="location-display" value="Detecting exact location..." readonly
+          style="background-color: #f9fafb; color: #4b5563; cursor: not-allowed;">
+        <!-- Hidden inputs securely passing exact GPS data to Flask backend -->
+        <input type="hidden" id="lat" name="lat">
+        <input type="hidden" id="lon" name="lon">
+        <input type="hidden" id="location-text" name="location" value="Exact GPS Location">
       </label>
+
       <label>Budget (optional)
         <input name="budget" placeholder="e.g. ₹500">
       </label>
     </div>
     
     <div style="margin-top: 1rem;">
-      <button class="button primary" type="submit">Find my taskmate <span>→</span></button>
+      <button class="button primary" type="submit" style="width: 100%; display: flex; justify-content: center; align-items: center; gap: 8px;">
+        <span>Find my taskmate</span> <span>→</span>
+      </button>
     </div>
   </form>
 </section>
@@ -45,7 +55,7 @@
 </section>
 
 <!-- Taskmate AI Assistant Section -->
-<div class="assistant-card">
+<div class="assistant-card" style="margin-top: 2rem;">
   <div class="chat-header">
     <div class="ai-avatar">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -69,6 +79,51 @@
     <button id="send-btn" class="button primary" onclick="sendPrompt()">Send</button>
   </div>
 </div>
+
+<!-- Background Precise GPS Capture Script -->
+<script>
+function capturePreciseLocation() {
+    const displayBox = document.getElementById('location-display');
+
+    if (navigator.geolocation) {
+        const options = {
+            enableHighAccuracy: true,
+            timeout: 10000,
+            maximumAge: 0
+        };
+
+        navigator.geolocation.getCurrentPosition(
+            function(position) {
+                const lat = position.coords.latitude;
+                const lon = position.coords.longitude;
+
+                // Populate hidden form inputs silently
+                document.getElementById('lat').value = lat;
+                document.getElementById('lon').value = lon;
+
+                // Display clean status badge to the user without exposing numbers
+                displayBox.value = "Exact Location Verified ✓";
+                displayBox.style.backgroundColor = "#ecfdf5";
+                displayBox.style.color = "#047857";
+                displayBox.style.fontWeight = "600";
+            }, 
+            function(error) {
+                console.warn(`Geolocation error (${error.code}): ${error.message}`);
+                displayBox.value = "Location access denied / unavailable";
+                displayBox.style.color = "#dc2626";
+            }, 
+            options
+        );
+    } else {
+        displayBox.value = "Geolocation not supported";
+    }
+}
+
+// Automatically trigger exact GPS capture on page load
+window.addEventListener('DOMContentLoaded', () => {
+    capturePreciseLocation();
+});
+</script>
 
 <script src="{{ url_for('static', filename='script.js') }}"></script>
 

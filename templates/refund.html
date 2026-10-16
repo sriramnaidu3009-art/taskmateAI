@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Refund & Cancellation Policy - Taskmate</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container" style="padding: 40px; max-width: 800px; margin: auto; font-family: Arial, sans-serif; line-height: 1.6;">
+        <h1>Refund & Cancellation Policy</h1>
+        <p><strong>Last updated:</strong> October 2026</p>
+        
+        <h3>1. Overview</h3>
+        <p>Taskmate ("we", "our", or "us") operates as a technology platform connecting users with independent service providers. This Refund & Cancellation Policy outlines the terms under which cancellations and refunds are handled.</p>
+        
+        <h3>2. User Cancellation Terms</h3>
+        <ul>
+            <li><strong>Before Dispatch:</strong> You may cancel a task request at any time prior to a service provider accepting and dispatching to your location without any cancellation fee.</li>
+            <li><strong>After Dispatch:</strong> If you cancel a service request after a worker has already accepted and is en route to your location, a nominal convenience or travel fee may be charged.</li>
+        </ul>
+
+        <h3>3. Service Provider Cancellations</h3>
+        <p>In rare instances where an assigned service provider is unable to fulfill the request due to unforeseen circumstances, Taskmate reserves the right to cancel the task and will attempt to reassign an alternative provider or issue a full refund.</p>
+        
+        <h3>4. Refund Eligibility</h3>
+        <p>Refunds are evaluated on a case-by-case basis. You may be eligible for a full or partial refund if:</p>
+        <ul>
+            <li>The service was not rendered due to verifiable fault on the provider's end.</li>
+            <li>Duplicate payment was debited due to a technical error during the checkout process.</li>
+        </ul>
+
+        <h3>5. Refund Processing Time</h3>
+        <p>Approved refunds are processed through our payment gateway partner, Razorpay, and will be credited back to your original payment method (bank account, credit/debit card, or UPI) within <strong>5 to 7 business days</strong>.</p>
+        
+        <h3>6. Contact Us</h3>
+        <p>If you have any questions or require assistance regarding a cancellation or refund, please reach out to our support team at support@taskmate.com.</p>
+        
+        <p style="margin-top: 40px;"><a href="{{ url_for('home') }}">&larr; Back to Home</a></p>
+    </div>
+</body>
+</html>

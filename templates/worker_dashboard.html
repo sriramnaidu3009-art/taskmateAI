@@ -492,5 +492,38 @@
             });
         }
     </script>
+    <script>
+  // Automatically track and push worker's location from their mobile browser
+  if (navigator.geolocation) {
+      navigator.geolocation.watchPosition(
+          (position) => {
+              const lat = position.coords.latitude;
+              const lon = position.coords.longitude;
+
+              // Send update to the Flask backend route we created
+              fetch('/api/worker/update-location', {
+                  method: 'POST',
+                  headers: {
+                      'Content-Type': 'application/json'
+                  },
+                  body: JSON.stringify({ lat: lat, lon: lon })
+              })
+              .then(res => res.json())
+              .then(data => console.log("Location synced:", data))
+              .catch(err => console.error("Location sync failed:", err));
+          },
+          (error) => {
+              console.warn("GPS tracking error or permission denied:", error.message);
+          },
+          {
+              enableHighAccuracy: true,
+              maximumAge: 5000,     // Update cache age
+              timeout: 10000        // Timeout limit
+          }
+      );
+  } else {
+      console.warn("Geolocation is not supported by this browser.");
+  }
+</script>
 </body>
 </html>

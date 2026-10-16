@@ -6,10 +6,11 @@
     <title>Task Tracker - Taskmate AI</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+    <!-- MapLibre GL CSS for High-Performance Vector Maps -->
+    <link href='https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css' rel='stylesheet' />
 </head>
 <body class="bg-stone-50 text-stone-800 font-sans min-h-screen flex flex-col">
 
-    {# Bill amounts (same math as calculate_payment_breakdown in app.py) #}
     {% set base_amount = worker.rate|float %}
     {% set platform_fee = (base_amount * 0.05)|round(2) %}
     {% set gst_on_fee = (platform_fee * 0.18)|round(2) %}
@@ -77,8 +78,6 @@
 
                 <!-- Bill + Payment Button -->
                 <div class="mt-6">
-
-                    <!-- Payment Bill (sits directly above the pay button) -->
                     <div class="bg-stone-50 border border-stone-200 rounded-xl p-4 mb-4 text-sm">
                         <div class="flex justify-between mb-2">
                             <span class="text-stone-500">Task Base Amount</span>
@@ -99,7 +98,6 @@
                         </div>
                     </div>
 
-                    <!-- Green Pay Button -> opens Razorpay checkout -->
                     <button id="pay-btn" type="button" onclick="payNow()" class="w-full bg-teal-800 hover:bg-teal-900 text-white font-bold py-3.5 px-4 rounded-xl shadow transition flex items-center justify-center gap-2">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
                         <span>Pay ₹{{ '%.2f'|format(total_amount) }} Now</span>
@@ -107,7 +105,7 @@
                 </div>
             </div>
 
-            <!-- Task Details & Embedded Google Map -->
+            <!-- Task Details & Real-Time Map Container -->
             <div class="md:col-span-2 space-y-6">
 
                 <!-- Task Information Card -->
@@ -122,7 +120,7 @@
                     <div class="grid grid-cols-2 gap-4 mt-6 text-sm">
                         <div class="p-3 bg-stone-50 rounded-xl">
                             <span class="text-stone-400 block text-xs">Location</span>
-                            <span class="font-semibold text-stone-800">{{ task.location or "Not specified" }}</span>
+                            <span class="font-semibold text-stone-800" id="task-location-text">{{ task.location or "Not specified" }}</span>
                         </div>
                         <div class="p-3 bg-stone-50 rounded-xl">
                             <span class="text-stone-400 block text-xs">Est. Budget</span>
@@ -131,25 +129,19 @@
                     </div>
                 </div>
 
-                <!-- Google Maps Navigation Card (No API Key Required) -->
+                <!-- Real-Time MapLibre Navigation Map -->
                 <div class="bg-white border border-stone-200 rounded-2xl p-6 shadow-sm">
                     <div class="flex justify-between items-center mb-4">
-                        <span class="text-xs uppercase tracking-wider text-stone-400 font-semibold">Worker Navigation</span>
+                        <span class="text-xs uppercase tracking-wider text-stone-400 font-semibold">Real-Time Worker Tracking</span>
                         <span class="text-xs text-teal-700 font-semibold flex items-center gap-1">
-                            <span class="w-2 h-2 rounded-full bg-teal-600 animate-ping"></span> Live Destination
+                            <span class="w-2 h-2 rounded-full bg-teal-600 animate-ping"></span> Live GPS Active
                         </span>
                     </div>
 
-                    <div class="w-full h-64 rounded-xl overflow-hidden border border-stone-200 shadow-inner">
-                        <iframe
-                            width="100%"
-                            height="100%"
-                            frameborder="0"
-                            style="border:0"
-                            loading="lazy"
-                            allowfullscreen
-                            src="https://maps.google.com/maps?q={{ (task.location or 'Hyderabad')|urlencode }}&t=&z=14&ie=UTF8&iwloc=&output=embed">
-                        </iframe>
+                    <div id="live-map" class="w-full h-64 rounded-xl overflow-hidden border border-stone-200 shadow-inner z-0"></div>
+                    <div class="mt-3 flex justify-between items-center text-xs text-stone-500">
+                        <span id="distance-text">Syncing worker position...</span>
+                        <span>Updates live every 5s</span>
                     </div>
                 </div>
 
@@ -164,6 +156,93 @@
         </div>
     </main>
 
+    <!-- MapLibre GL JS & Tracking Logic -->
+    <script src='https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js'></script>
+    <script>
+        const taskLocationQuery = "{{ task.get('location', '') }}";
+        const taskLat = parseFloat("{{ task.get('lat', '') }}") || null;
+        const taskLon = parseFloat("{{ task.get('lon', '') }}") || null;
+
+        async function initTrackerMap() {
+            let centerLat = 17.3850;
+            let centerLon = 78.4867;
+
+            // 1. Use exact GPS coordinates if available from submission
+            if (taskLat && taskLon) {
+                centerLat = taskLat;
+                centerLon = taskLon;
+            } 
+            // 2. Otherwise, geocode the text location query using OpenStreetMap Nominatim
+            else if (taskLocationQuery) {
+                try {
+                    const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(taskLocationQuery)}`);
+                    const data = await res.json();
+                    if (data && data.length > 0) {
+                        centerLat = parseFloat(data[0].lat);
+                        centerLon = parseFloat(data[0].lon);
+                    }
+                } catch (e) {
+                    console.error("Geocoding failed, using fallback coordinates:", e);
+                }
+            }
+
+            // Initialize MapLibre GL Map (Note: MapLibre takes [longitude, latitude])
+            const map = new maplibregl.Map({
+                container: 'live-map',
+                style: 'https://tiles.openfreemap.org/styles/liberty', // Free open-source vector tile style
+                center: [centerLon, centerLat],
+                zoom: 14
+            });
+
+            map.addControl(new maplibregl.NavigationControl(), 'top-right');
+
+            // User / Service Location Marker element
+            const userElement = document.createElement('div');
+            userElement.style.cssText = 'background-color: #e16d4c; width: 16px; height: 16px; border-radius: 50%; border: 3px solid white; box-shadow: 0 0 5px rgba(0,0,0,0.3);';
+
+            new maplibregl.Marker({ element: userElement })
+                .setLngLat([centerLon, centerLat])
+                .setPopup(new maplibregl.Popup().setHTML("<b>Service Location</b><br>" + (taskLocationQuery || "Your Location")))
+                .addTo(map);
+
+            let workerMarker = null;
+
+            // Poll backend route for live worker location updates
+            function pollWorkerLocation() {
+                fetch('/api/worker/live-location')
+                    .then(res => res.json())
+                    .then(data => {
+                        if (data.lat && data.lon) {
+                            const workerLngLat = [data.lon, data.lat]; // MapLibre takes [lng, lat]
+
+                            if (!workerMarker) {
+                                const workerElement = document.createElement('div');
+                                workerElement.style.cssText = 'background-color: #1d7a68; width: 18px; height: 18px; border-radius: 50%; border: 3px solid white; box-shadow: 0 0 6px rgba(0,0,0,0.4);';
+
+                                workerMarker = new maplibregl.Marker({ element: workerElement })
+                                    .setLngLat(workerLngLat)
+                                    .setPopup(new maplibregl.Popup().setHTML("<b>{{ worker.name }}</b><br>En route!"))
+                                    .addTo(map);
+                            } else {
+                                workerMarker.setLngLat(workerLngLat);
+                            }
+                            
+                            if (data.distance) {
+                                document.getElementById('distance-text').innerText = `Estimated distance: ${data.distance} km away`;
+                            }
+                        }
+                    })
+                    .catch(err => console.error("Location sync error:", err));
+            }
+
+            // Initial fetch and poll every 5 seconds
+            pollWorkerLocation();
+            setInterval(pollWorkerLocation, 5000);
+        }
+
+        document.addEventListener("DOMContentLoaded", initTrackerMap);
+    </script>
+
     <!-- Razorpay Checkout Handler -->
     <script>
         const BASE_AMOUNT = {{ base_amount }};
@@ -174,7 +253,6 @@
             btn.disabled = true;
             btn.classList.add('opacity-70');
 
-            // Server calculates fee + GST and creates the Razorpay order
             fetch('/api/create-order', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },

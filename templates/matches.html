@@ -8,7 +8,30 @@
   <h1>Here’s who can help.</h1>
   <p>{{ task.title }}{% if task.location %} · {{ task.location }}{% endif %}</p>
 </div>
-
+<script>
+function getUserLocation() {
+    if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+            (position) => {
+                const lat = position.coords.latitude;
+                const lon = position.coords.longitude;
+                
+                // Send these coordinates to your Flask backend via an AJAX call or store in a hidden form field
+                console.log("User Lat/Lon:", lat, lon);
+                
+                // Optional: Reverse geocode using a free API or send directly to backend
+                document.getElementById("lat_input").value = lat;
+                document.getElementById("lon_input").value = lon;
+            },
+            (error) => {
+                console.warn("Geolocation permission denied or unavailable:", error.message);
+            }
+        );
+    }
+}
+// Run on page load
+window.onload = getUserLocation;
+</script>
 <section class="analysis-card">
   <div class="spark">✦</div>
   <div>
