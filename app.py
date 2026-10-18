@@ -1,18 +1,16 @@
 from __future__ import annotations
 
-import httpx
 import json
 import math
 import os
 import random
-import time
+import re
+from datetime import datetime, timezone
+
 import firebase_admin
 import razorpay
 import requests
-from sendgrid import SendGridAPIClient
-from sendgrid.helpers.mail import Mail
 from dotenv import load_dotenv
-from firebase_admin import auth as firebase_auth
 from firebase_admin import credentials, firestore
 from flask import (
     Flask,
@@ -27,16 +25,15 @@ from flask import (
 from flask_login import (
     LoginManager,
     UserMixin,
-    current_user,
-    login_required,
-    login_user,
     logout_user,
 )
 from flask_sqlalchemy import SQLAlchemy
-from google import genai
-from google.genai import types
+from groq import Groq
+from sendgrid import SendGridAPIClient
+from sendgrid.helpers.mail import Mail
+from sqlalchemy import text
+from sqlalchemy.exc import DBAPIError, OperationalError
 from werkzeug.security import check_password_hash, generate_password_hash
-from datetime import datetime, timezone
 
 # 1. Load Environment Variables
 load_dotenv()
@@ -45,9 +42,9 @@ load_dotenv()
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "taskmate-demo-change-this-before-deploying")
 
-# Gemini Setup
-api_key = os.getenv("GEMINI_API_KEY")
-client = genai.Client(api_key=api_key) if api_key else None
+# Groq AI Setup
+groq_api_key = os.getenv("GROQ_API_KEY")
+client = Groq(api_key=groq_api_key) if groq_api_key else None
 
 # SendGrid API Setup
 SENDGRID_API_KEY = os.getenv("SENDGRID_API_KEY")
@@ -59,22 +56,30 @@ FAST2SMS_API_KEY = os.environ.get(
     "Bixt0j2lyWXoGT7p9jiDv5BIAMutpQGdNJTdOaXJBShuP4ivXpCBdpQx4uRz",
 )
 
-# Database Setup (External/Render Postgres or local SQLite fallback)
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///users.db")
-if DATABASE_URL.startswith("postgres://"):
-    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+# 3. Configure Database URI & Engine Options BEFORE initializing SQLAlchemy
+database_url = os.getenv("DATABASE_URL", "sqlite:///users.db")
+if database_url.startswith("postgres://"):
+    database_url = database_url.replace("postgres://", "postgresql://", 1)
 
-# Automatically enforce SSL mode for external PostgreSQL (Render, Supabase, etc.)
-if "postgres" in DATABASE_URL and "sslmode" not in DATABASE_URL:
-    if "?" in DATABASE_URL:
-        DATABASE_URL += "&sslmode=require"
-    else:
-        DATABASE_URL += "?sslmode=require"
+if "postgres" in database_url and "sslmode" not in database_url:
+    database_url += "&sslmode=require" if "?" in database_url else "?sslmode=require"
 
-app.config["SQLALCHEMY_DATABASE_URI"] = DATABASE_URL
+app.config["SQLALCHEMY_DATABASE_URI"] = database_url
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
+    "pool_pre_ping": True,
+    "pool_recycle": 280,
+    "pool_timeout": 30,
+    "pool_size": 5,
+    "max_overflow": 5,
+}
 
-# 3. Initialize Firebase Admin SDK
+# 4. Initialize SQLAlchemy & Login Manager
+db = SQLAlchemy(app)
+login_manager = LoginManager(app)
+login_manager.login_view = "login"
+
+# 5. Initialize Firebase Admin SDK
 base_dir = os.path.dirname(os.path.abspath(__file__))
 key_path = os.path.join(base_dir, "firebase-key.json")
 
@@ -91,12 +96,7 @@ if os.path.exists(key_path):
 else:
     print("WARNING: firebase-key.json not found in root directory!")
 
-# 4. Initialize SQLAlchemy & Flask-Login
-db = SQLAlchemy(app)
-login_manager = LoginManager(app)
-login_manager.login_view = "login"
-
-# 5. Initialize Razorpay Client
+# 6. Initialize Razorpay Client
 RAZORPAY_KEY_ID = os.getenv("RAZORPAY_KEY_ID", "rzp_test_TjmYlCGss5BpcP")
 RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET", "aSDlOi1qJYvrtMq5HQgjxoCJ")
 razorpay_client = razorpay.Client(auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET))
@@ -104,6 +104,7 @@ razorpay_client = razorpay.Client(auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET))
 
 # --- Database Models ---
 class User(db.Model, UserMixin):
+    __tablename__ = "user"
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=True)
     email = db.Column(db.String(120), unique=True, nullable=True)
@@ -112,46 +113,102 @@ class User(db.Model, UserMixin):
     role = db.Column(db.String(20), default="user")
     skills = db.Column(db.String(255), nullable=True)
     description = db.Column(db.Text, nullable=True)
+    lat = db.Column(db.Float, nullable=True)
+    lon = db.Column(db.Float, nullable=True)
 
 
 class WorkerLocation(db.Model):
-    __tablename__ = 'worker_locations'
+    __tablename__ = "worker_location"
     id = db.Column(db.Integer, primary_key=True)
-    worker_id = db.Column(db.Integer, unique=True, nullable=False)
+    worker_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
     lat = db.Column(db.Float, nullable=False)
     lon = db.Column(db.Float, nullable=False)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+
+
+class Task(db.Model):
+    __tablename__ = "tasks"
+    id = db.Column(db.Integer, primary_key=True)
+    title = db.Column(db.String(200), nullable=False, default="Service Request")
+    description = db.Column(db.Text, nullable=True)
+    category = db.Column(db.String(100), nullable=True)
+    location = db.Column(db.String(200), nullable=True)
+    lat = db.Column(db.Float, nullable=True)
+    lon = db.Column(db.Float, nullable=True)
+    budget = db.Column(db.Float, nullable=True, default=450.0)
+    status = db.Column(db.String(40), default="pending")
+    customer_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=True)
+    worker_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=True)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
 
 
 class WorkerPayout(db.Model):
-    __tablename__ = 'worker_payouts'
+    __tablename__ = "worker_payouts"
     id = db.Column(db.Integer, primary_key=True)
     worker_id = db.Column(db.Integer, nullable=False)
     task_id = db.Column(db.Integer, nullable=False)
     amount = db.Column(db.Float, nullable=False)
-    status = db.Column(db.String(32), default='PENDING')
+    status = db.Column(db.String(32), default="PENDING")
     payout_ref_id = db.Column(db.String(128), nullable=True)
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
 
-#privacy policy, terms, refund policy routes
+
+# 7. Auto-Heal Database Schema & Tables on Startup
+with app.app_context():
+    try:
+        db.create_all()
+        if "postgres" in database_url:
+            schema_patches = [
+                'ALTER TABLE "user" ADD COLUMN IF NOT EXISTS lat DOUBLE PRECISION;',
+                'ALTER TABLE "user" ADD COLUMN IF NOT EXISTS lon DOUBLE PRECISION;',
+                'ALTER TABLE "tasks" ADD COLUMN IF NOT EXISTS title VARCHAR(200) DEFAULT \'Service Request\';',
+                'ALTER TABLE "tasks" ADD COLUMN IF NOT EXISTS description TEXT;',
+                'ALTER TABLE "tasks" ADD COLUMN IF NOT EXISTS category VARCHAR(100);',
+                'ALTER TABLE "tasks" ADD COLUMN IF NOT EXISTS location VARCHAR(200);',
+                'ALTER TABLE "tasks" ADD COLUMN IF NOT EXISTS lat DOUBLE PRECISION;',
+                'ALTER TABLE "tasks" ADD COLUMN IF NOT EXISTS lon DOUBLE PRECISION;',
+                'ALTER TABLE "tasks" ADD COLUMN IF NOT EXISTS budget DOUBLE PRECISION DEFAULT 450.0;',
+                'ALTER TABLE "tasks" ADD COLUMN IF NOT EXISTS status VARCHAR(40) DEFAULT \'pending\';',
+                'ALTER TABLE "tasks" ADD COLUMN IF NOT EXISTS customer_id INTEGER;',
+                'ALTER TABLE "tasks" ADD COLUMN IF NOT EXISTS worker_id INTEGER;',
+                'ALTER TABLE "tasks" ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;',
+            ]
+            for stmt in schema_patches:
+                db.session.execute(text(stmt))
+            db.session.commit()
+        print("[DATABASE MIGRATION]: Schema verified and synced successfully.")
+    except Exception as e:
+        db.session.rollback()
+        print(f"[DATABASE MIGRATION NOTICE]: {e}")
+
+
+# --- Flask-Login User Loader ---
 @login_manager.user_loader
 def load_user(user_id):
-    return User.query.get(int(user_id))
+    try:
+        return db.session.get(User, int(user_id))
+    except Exception:
+        db.session.rollback()
+        return None
 
+
+# --- Compliance Policy Routes ---
 @app.route("/privacy")
 def privacy():
     return render_template("privacy.html")
 
+
 @app.route("/terms")
 def terms():
     return render_template("terms.html")
+
 
 @app.route("/refund-policy")
 def refund_policy():
     return render_template("refund.html")
 
 
-# --- Static Data ---
+# --- Static Fallback Data ---
 WORKERS = [
     {
         "id": 1,
@@ -208,10 +265,10 @@ WORKERS = [
 ]
 
 KEYWORDS = {
-    "electrician": ["fan", "electric", "wire", "switch", "light", "power", "socket"],
-    "plumber": ["tap", "leak", "pipe", "drain", "water", "toilet"],
-    "cleaner": ["clean", "cleaning", "dust", "wash"],
-    "carpenter": ["wood", "door", "furniture", "shelf", "cabinet"],
+    "electrician": ["fan", "electric", "wire", "switch", "light", "power", "socket", "ac", "appliance"],
+    "plumber": ["tap", "leak", "pipe", "drain", "water", "toilet", "sink"],
+    "cleaner": ["clean", "cleaning", "dust", "wash", "mop"],
+    "carpenter": ["wood", "door", "furniture", "shelf", "cabinet", "lock"],
     "caregiver": [
         "grandpa",
         "grandma",
@@ -226,6 +283,43 @@ KEYWORDS = {
 
 
 # --- Helper Functions ---
+def check_user_password(stored_password: str, provided_password: str) -> bool:
+    """Safely verifies hashed passwords and falls back gracefully for legacy plaintext accounts."""
+    if not stored_password or not provided_password:
+        return False
+    try:
+        if check_password_hash(stored_password, provided_password):
+            return True
+    except ValueError:
+        pass
+    return stored_password == provided_password
+
+
+def safe_user_query(contact_str: str, role_filter: str | None = None):
+    """Safely queries User table with automatic reconnect if PostgreSQL drops idle connections."""
+    if not contact_str:
+        return None
+    contact_str = str(contact_str).strip()
+    digits = "".join(filter(str.isdigit, contact_str))
+    clean_phone = digits[-10:] if len(digits) >= 10 else contact_str
+
+    for attempt in range(2):
+        try:
+            if "@" in contact_str:
+                query = User.query.filter(User.email.ilike(contact_str))
+            else:
+                query = User.query.filter(
+                    (User.phone == clean_phone) | (User.email.ilike(contact_str))
+                )
+            if role_filter:
+                query = query.filter(User.role == role_filter)
+            return query.first()
+        except (OperationalError, DBAPIError) as e:
+            db.session.rollback()
+            print(f"[DB RECONNECT ATTEMPT {attempt + 1}]: {e}")
+    return None
+
+
 def calculate_payment_breakdown(base_amount: float):
     platform_fee = round(base_amount * 0.05, 2)
     gst_on_fee = round(platform_fee * 0.18, 2)
@@ -242,13 +336,18 @@ def calculate_payment_breakdown(base_amount: float):
 
 
 def calculate_distance(lat1, lon1, lat2, lon2):
-    R = 6371.0
-    lat1, lon1, lat2, lon2 = map(math.radians, [float(lat1), float(lon1), float(lat2), float(lon2)])
-    dlat = lat2 - lat1
-    dlon = lon2 - lon1
-    a = math.sin(dlat / 2)**2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2)**2
-    c = 2 * math.asin(math.sqrt(a))
-    return round(R * c, 1)
+    try:
+        R = 6371.0
+        lat1, lon1, lat2, lon2 = map(
+            math.radians, [float(lat1), float(lon1), float(lat2), float(lon2)]
+        )
+        dlat = lat2 - lat1
+        dlon = lon2 - lon1
+        a = math.sin(dlat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
+        c = 2 * math.asin(math.sqrt(a))
+        return round(R * c, 1)
+    except (ValueError, TypeError):
+        return 1.5
 
 
 def generate_otp():
@@ -257,7 +356,7 @@ def generate_otp():
 
 def send_realtime_sms(phone_number, otp):
     clean_phone = "".join(filter(str.isdigit, str(phone_number)))[-10:]
-    if FAST2SMS_API_KEY:
+    if FAST2SMS_API_KEY and clean_phone:
         url = "https://www.fast2sms.com/dev/bulkV2"
         payload = {
             "route": "otp",
@@ -278,14 +377,14 @@ def send_realtime_sms(phone_number, otp):
 
 
 def send_realtime_email(recipient_email: str, otp: str) -> bool:
-    if not SENDGRID_API_KEY:
+    if not SENDGRID_API_KEY or not recipient_email:
         return False
 
     message = Mail(
         from_email=SENDER_EMAIL,
         to_emails=recipient_email,
-        subject="Your Registration Verification Code",
-        html_content=f"<strong>Your OTP verification code is: {otp}</strong>. Do not share this with anyone."
+        subject="Your Taskmate Verification Code",
+        html_content=f"<strong>Your OTP verification code is: {otp}</strong>. Do not share this with anyone.",
     )
 
     try:
@@ -306,7 +405,7 @@ def analyze_task(title: str, description: str) -> dict:
 
     Return ONLY a JSON object with no extra text or markdown formatting:
     {{
-        "category": "Inferred Category (e.g. Caregiver / Senior Care, Electrical, Plumbing, etc.)",
+        "category": "Inferred Category (e.g. Electrical, Plumbing, Cleaning, Carpentry, Caregiver)",
         "skills": ["Skill 1", "Skill 2", "Skill 3"],
         "duration": "2–4 hours",
         "price_min": 400,
@@ -319,18 +418,27 @@ def analyze_task(title: str, description: str) -> dict:
 
     if client:
         try:
-            response = client.models.generate_content(
-                model="gemini-3.8-flash",
-                contents=prompt,
+            response = client.chat.completions.create(
+                model="llama-3.1-8b-instant",
+                messages=[
+                    {"role": "system", "content": "You are a JSON-only response generator for task analysis."},
+                    {"role": "user", "content": prompt},
+                ],
+                response_format={"type": "json_object"},
+                temperature=0.1,
             )
-            clean_json = response.text.replace("```json", "").replace("```", "").strip()
-            return json.loads(clean_json)
+            clean_json = response.choices[0].message.content.strip()
+            parsed = json.loads(clean_json)
+            if isinstance(parsed, dict) and "category" in parsed:
+                if not parsed.get("skills"):
+                    parsed["skills"] = [parsed["category"], "General Service"]
+                return parsed
         except Exception as e:
-            print(f"[GEMINI API FALLBACK ACTIVE]: {e}")
+            print(f"[GROQ API FALLBACK ACTIVE]: {e}")
 
-    text = f"{title} {description}".lower()
+    text_content = f"{title} {description}".lower()
     category = next(
-        (name for name, words in KEYWORDS.items() if any(word in text for word in words)),
+        (name for name, words in KEYWORDS.items() if any(word in text_content for word in words)),
         "General Service",
     )
 
@@ -340,7 +448,9 @@ def analyze_task(title: str, description: str) -> dict:
         "duration": "2–4 hours",
         "price_min": 400,
         "price_max": 1000,
-        "urgency": "High" if any(w in text for w in ["urgent", "asap", "today", "immediately"]) else "Standard",
+        "urgency": "High"
+        if any(w in text_content for w in ["urgent", "asap", "today", "immediately"])
+        else "Standard",
         "summary": f"Service request for: {title or 'Home Assistance'}.",
         "plan": [
             "Confirm service specifications and preferred schedule",
@@ -350,25 +460,63 @@ def analyze_task(title: str, description: str) -> dict:
     }
 
 
-def ranked_workers(analysis: dict) -> list[dict]:
-    required = [s.lower() for s in analysis.get("skills", [])]
+def ranked_workers(analysis: dict, task_lat=None, task_lon=None) -> list[dict]:
+    required = [s.lower() for s in analysis.get("skills", []) if s]
     category = str(analysis.get("category", "")).lower()
-    ranked = []
 
-    for worker in WORKERS:
+    candidate_pool = [w.copy() for w in WORKERS]
+    try:
+        db_workers = User.query.filter_by(role="worker").all()
+        for u in db_workers:
+            name_str = (u.name or "Verified Partner").strip()
+            initials = "".join(part[0].upper() for part in name_str.split()[:2]) or "VP"
+            raw_skills = [
+                s.strip().lower()
+                for s in re.split(r"[,&/]+", u.skills or "general service")
+                if s.strip()
+            ]
+            dist = 1.2
+            if task_lat and task_lon and u.lat is not None and u.lon is not None:
+                dist = calculate_distance(task_lat, task_lon, u.lat, u.lon)
+
+            candidate_pool.append(
+                {
+                    "id": u.id + 1000,
+                    "db_id": u.id,
+                    "name": name_str,
+                    "initials": initials,
+                    "role": u.skills or "Verified Service Partner",
+                    "skills": raw_skills,
+                    "rating": 4.9,
+                    "jobs": 15,
+                    "distance": dist,
+                    "rate": 450,
+                    "available": True,
+                    "color": "#0d9488",
+                    "lat": u.lat,
+                    "lon": u.lon,
+                }
+            )
+    except Exception as e:
+        db.session.rollback()
+        print(f"[WORKER POOL QUERY NOTICE]: {e}")
+
+    ranked = []
+    for worker in candidate_pool:
         worker_skills = [s.lower() for s in worker.get("skills", [])]
         worker_role = str(worker.get("role", "")).lower()
 
         skill_matches = sum(
             1 for req in required if any(req in w_s or w_s in req for w_s in worker_skills)
         )
-        category_match = 1 if (category in worker_role or worker_role in category) else 0
+        cat_prefix = category[:4] if len(category) >= 4 else category
+        category_match = 1 if (cat_prefix and (cat_prefix in worker_role or worker_role[:4] in category)) else 0
 
         if skill_matches > 0 or category_match > 0 or not required:
-            overlap_score = (skill_matches / len(required)) if required else 0.5
-            distance_val = worker.get("distance", 5.0)
-            distance_score = max(0, 1 - (distance_val / 10.0))
-            rating_score = worker.get("rating", 4.0) / 5.0
+            overlap_score = (skill_matches / max(len(required), 1)) if required else 0.5
+            distance_val = float(worker.get("distance", 5.0))
+            distance_score = max(0.0, 1.0 - (distance_val / 15.0))
+            rating_score = float(worker.get("rating", 4.0)) / 5.0
             availability_score = 1.0 if worker.get("available", True) else 0.1
 
             score = round(
@@ -383,17 +531,17 @@ def ranked_workers(analysis: dict) -> list[dict]:
             )
 
             item = worker.copy()
-            item["score"] = max(score, 40)
-            item["skill_matches"] = skill_matches
+            item["score"] = min(max(score, 45), 99)
+            item["skill_matches"] = max(skill_matches, 1)
             ranked.append(item)
 
     ranked.sort(
         key=lambda x: (
             x.get("available", False),
             x.get("score", 0),
-            -x.get("distance", 99)
-        ), 
-        reverse=True
+            -float(x.get("distance", 99)),
+        ),
+        reverse=True,
     )
     return ranked
 
@@ -403,63 +551,70 @@ def disburse_worker_payout(worker=None, task_id=1, base_amount=None):
         worker = session.get("assigned_worker", {})
     if base_amount is None:
         base_amount = float(worker.get("rate", 500))
-        
-    worker_id = worker.get("id", 1)
+
+    worker_id = worker.get("db_id") or worker.get("id", 1)
     worker_fund_account = worker.get("fund_account_id")
-    
+
     if not worker_fund_account:
-        payout_record = WorkerPayout(
-            worker_id=worker_id,
-            task_id=task_id,
-            amount=base_amount,
-            status='PENDING_BANK_DETAILS'
-        )
-        db.session.add(payout_record)
-        db.session.commit()
+        try:
+            payout_record = WorkerPayout(
+                worker_id=int(worker_id),
+                task_id=int(task_id),
+                amount=base_amount,
+                status="PENDING_BANK_DETAILS",
+            )
+            db.session.add(payout_record)
+            db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            print(f"[PAYOUT RECORD ERROR]: {e}")
         return {"status": "pending", "message": "Worker bank details missing. Payout queued."}
 
     RAZORPAYX_URL = "https://api.razorpay.com/v1/payouts"
     payload = {
-        "account_number": "YOUR_RAZORPAYX_ACCOUNT_NUMBER",
+        "account_number": os.getenv("RAZORPAYX_ACCOUNT_NUMBER", "YOUR_RAZORPAYX_ACCOUNT_NUMBER"),
         "fund_account_id": worker_fund_account,
         "amount": int(base_amount * 100),
         "currency": "INR",
         "mode": "IMPS",
         "purpose": "payout",
-        "reference_id": f"task_payout_{task_id}_{worker_id}"
+        "reference_id": f"task_payout_{task_id}_{worker_id}",
     }
 
     try:
         response = requests.post(
-            RAZORPAYX_URL, 
-            json=payload, 
-            auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET)
+            RAZORPAYX_URL,
+            json=payload,
+            auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET),
+            timeout=10,
         )
         res_data = response.json()
 
         if response.status_code in [200, 201]:
             payout_record = WorkerPayout(
-                worker_id=worker_id,
-                task_id=task_id,
+                worker_id=int(worker_id),
+                task_id=int(task_id),
                 amount=base_amount,
-                status='PROCESSING',
-                payout_ref_id=res_data.get('id')
+                status="PROCESSING",
+                payout_ref_id=res_data.get("id"),
             )
             db.session.add(payout_record)
             db.session.commit()
-            return {"status": "success", "payout_id": res_data.get('id')}
+            return {"status": "success", "payout_id": res_data.get("id")}
         else:
-            return {"status": "failed", "error": res_data.get('error', {}).get('description')}
+            return {"status": "failed", "error": res_data.get("error", {}).get("description")}
     except Exception as e:
+        db.session.rollback()
         return {"status": "error", "message": str(e)}
 
 
 # --- Application Routes ---
 
+
 @app.route("/", methods=["GET", "POST"])
 def home():
     if request.method == "POST":
-        task = {
+        task_data = {
             "title": request.form.get("title", "").strip(),
             "description": request.form.get("description", "").strip(),
             "location": request.form.get("location", "").strip(),
@@ -467,33 +622,74 @@ def home():
             "lat": request.form.get("lat", "").strip(),
             "lon": request.form.get("lon", "").strip(),
         }
-        analysis = analyze_task(task["title"], task["description"])
-        session["task"] = task
+        analysis = analyze_task(task_data["title"], task_data["description"])
+
+        try:
+            budget_val = float(task_data["budget"]) if task_data["budget"] else 450.0
+        except ValueError:
+            budget_val = 450.0
+
+        try:
+            lat_val = float(task_data["lat"]) if task_data["lat"] else None
+            lon_val = float(task_data["lon"]) if task_data["lon"] else None
+        except ValueError:
+            lat_val, lon_val = None, None
+
+        customer_obj = safe_user_query(session.get("user")) if session.get("user") else None
+
+        try:
+            new_task = Task(
+                title=task_data["title"] or "Service Request",
+                description=task_data["description"] or task_data["title"] or "Home Service Request",
+                category=analysis.get("category", "General"),
+                location=task_data["location"] or "Exact GPS Location",
+                lat=lat_val,
+                lon=lon_val,
+                budget=budget_val,
+                status="pending",
+                customer_id=customer_obj.id if customer_obj else None,
+            )
+            db.session.add(new_task)
+            db.session.commit()
+            session["task_id"] = new_task.id
+            task_data["id"] = new_task.id
+        except Exception as e:
+            db.session.rollback()
+            print(f"[TASK SAVE ERROR]: {e}")
+
+        session["task"] = task_data
         session["analysis"] = analysis
         return redirect(url_for("matches"))
     return render_template("home.html", razorpay_key=RAZORPAY_KEY_ID)
 
 
-@app.route('/submit', methods=['POST'])
+@app.route("/submit", methods=["POST"])
 def submit_task():
-    if not session.get("user"):
-        flash("Please log in or register to find your taskmate.", "error")
-        return redirect(url_for('login'))
+    description = request.form.get("description", "Service Request").strip()
+    lat = request.form.get("lat")
+    lon = request.form.get("lon")
 
-    task_title = request.form.get('task')
-    task_desc = request.form.get('description')
-    location = request.form.get('location')
-    
-    session['task'] = {
-        'title': task_title, 
-        'description': task_desc, 
-        'location': location
-    }
-    session['analysis'] = {
-        'location': location,
-        'query': task_title
-    }
-    return redirect(url_for('matches'))
+    if not lat or not lon:
+        flash("Location coordinates are required.", "error")
+        return redirect(url_for("home"))
+
+    analysis = analyze_task(description[:80], description)
+    try:
+        new_task = Task(
+            title=description[:80] or "Service Request",
+            description=description,
+            category=analysis.get("category", "Electrical"),
+            lat=float(lat),
+            lon=float(lon),
+            status="pending",
+        )
+        db.session.add(new_task)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        print(f"[SUBMIT TASK ERROR]: {e}")
+
+    return redirect(url_for("worker_dashboard"))
 
 
 @app.route("/matches")
@@ -507,12 +703,13 @@ def matches():
         if not analysis:
             return redirect(url_for("home"))
 
-        workers = ranked_workers(analysis)
-        session["current_matches_ids"] = [w.get("id") for w in workers if isinstance(w, dict)]
+        task_data = session.get("task", {})
+        workers = ranked_workers(analysis, task_data.get("lat"), task_data.get("lon"))
+        session["current_matches"] = workers
 
         return render_template(
             "matches.html",
-            task=session.get("task", {}),
+            task=task_data,
             analysis=analysis,
             workers=workers,
         )
@@ -523,10 +720,10 @@ def matches():
 
 @app.route("/assign/<int:worker_id>", methods=["POST"])
 def assign(worker_id: int):
-    worker = next((item for item in WORKERS if item["id"] == worker_id), None)
+    saved_matches = session.get("current_matches", [])
+    worker = next((item for item in saved_matches if item["id"] == worker_id), None)
     if not worker:
-        saved_matches = session.get("current_matches", [])
-        worker = next((item for item in saved_matches if item["id"] == worker_id), None)
+        worker = next((item for item in WORKERS if item["id"] == worker_id), None)
 
     if not session.get("task"):
         flash("Session expired. Please submit your request again.")
@@ -536,8 +733,21 @@ def assign(worker_id: int):
         flash("Worker not found. Please try choosing again.")
         return redirect(url_for("matches"))
 
+    task_id = session.get("task_id")
+    if task_id:
+        try:
+            db_task = db.session.get(Task, int(task_id))
+            if db_task:
+                if worker.get("db_id"):
+                    db_task.worker_id = worker["db_id"]
+                db_task.status = "accepted"
+                db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            print(f"[ASSIGN DB UPDATE ERROR]: {e}")
+
     session["assigned_worker"] = worker
-    session["status"] = "Assigned"
+    session["status"] = "Worker On The Way"
     return redirect(url_for("tracker"))
 
 
@@ -547,39 +757,71 @@ def worker_accept_task(task_id: int):
     if not user_key or session.get("role") != "worker":
         return jsonify({"status": "error", "message": "Unauthorized"}), 401
 
-    if "task" not in session:
-        session["task"] = {
-            "id": task_id,
-            "title": "Fix Ceiling Fan",
-            "description": "Fan making high noise and stopped spinning.",
-            "location": "Meerpet, Hyderabad",
-            "budget": "450",
-        }
+    user_obj = safe_user_query(user_key, role_filter="worker")
+    if not user_obj:
+        return jsonify({"status": "error", "message": "Worker profile not found."}), 404
 
-    session["assigned_worker"] = user_key
-    session["status"] = "Worker On The Way"
+    try:
+        task = db.session.get(Task, task_id)
+        if not task:
+            return jsonify({"status": "error", "message": "Task not found."}), 404
 
-    return jsonify(
-        {
-            "status": "success",
-            "message": f"Task #{task_id} accepted!",
-            "redirect": url_for("worker_dashboard"),
-        }
-    )
+        if task.status != "pending":
+            return jsonify({"status": "error", "message": "Task is no longer available."}), 400
+
+        task.status = "accepted"
+        task.worker_id = user_obj.id
+        db.session.commit()
+
+        return jsonify(
+            {
+                "status": "success",
+                "message": f"Task #{task_id} accepted successfully!",
+                "redirect": url_for("worker_dashboard"),
+            }
+        )
+    except Exception as e:
+        db.session.rollback()
+        print(f"[ACCEPT TASK ERROR]: {e}")
+        return jsonify({"status": "error", "message": "Database error occurred."}), 500
 
 
 @app.route("/api/worker/update-status", methods=["POST"])
 def worker_update_status():
-    if not session.get("user") or session.get("role") != "worker":
+    user_key = session.get("user")
+    if not user_key or session.get("role") != "worker":
         return jsonify({"status": "error", "message": "Unauthorized"}), 401
 
     data = request.get_json() or {}
     new_status = data.get("status")
-    if new_status:
-        session["status"] = new_status
-        return jsonify({"status": "success", "current_status": session["status"]})
+    if not new_status:
+        return jsonify({"status": "error", "message": "Invalid status payload"}), 400
 
-    return jsonify({"status": "error", "message": "Invalid status payload"}), 400
+    session["status"] = new_status
+
+    # Persist status update in PostgreSQL so customer's /tracker view stays synced
+    user_obj = safe_user_query(user_key, role_filter="worker")
+    if user_obj:
+        try:
+            active_task = (
+                Task.query.filter(
+                    Task.worker_id == user_obj.id,
+                    Task.status != "completed",
+                )
+                .order_by(Task.created_at.desc())
+                .first()
+            )
+            if active_task:
+                if "complete" in new_status.lower():
+                    active_task.status = "completed"
+                else:
+                    active_task.status = "accepted"
+                db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            print(f"[STATUS SYNC ERROR]: {e}")
+
+    return jsonify({"status": "success", "current_status": new_status})
 
 
 @app.route("/tracker", methods=["GET", "POST"])
@@ -599,6 +841,38 @@ def tracker():
         session["status"] = request.form.get("status", session.get("status", "Worker On The Way"))
 
     status = session.get("status", "Worker On The Way")
+
+    # Sync live status & assigned worker from database if a real worker accepted the task
+    task_id = session.get("task_id") or task.get("id")
+    if task_id:
+        try:
+            db_task = db.session.get(Task, int(task_id))
+            if db_task and db_task.worker_id:
+                db_worker = db.session.get(User, db_task.worker_id)
+                if db_worker:
+                    name_str = db_worker.name or "Verified Partner"
+                    initials = "".join(p[0].upper() for p in name_str.split()[:2]) or "VP"
+                    worker = {
+                        "id": db_worker.id + 1000,
+                        "db_id": db_worker.id,
+                        "name": name_str,
+                        "initials": initials,
+                        "role": db_worker.skills or "Verified Service Partner",
+                        "rating": 4.9,
+                        "jobs": 15,
+                        "distance": 1.2,
+                        "rate": int(db_task.budget or 450),
+                        "color": "#0d9488",
+                        "lat": db_worker.lat,
+                        "lon": db_worker.lon,
+                    }
+                    session["assigned_worker"] = worker
+                if db_task.status == "completed":
+                    status = "Job Completed"
+        except Exception as e:
+            db.session.rollback()
+            print(f"[TRACKER DB SYNC NOTICE]: {e}")
+
     return render_template(
         "tracker.html",
         task=task,
@@ -643,7 +917,7 @@ def create_payment_order():
             "order_id": order_id,
             "pricing": pricing,
             "title": task_title,
-            "key": os.environ.get("RAZORPAY_KEY_ID", ""),
+            "key": RAZORPAY_KEY_ID,
         }
     )
 
@@ -652,7 +926,7 @@ def create_payment_order():
 def create_checkout(task_id):
     assigned_worker = session.get("assigned_worker", {})
     base_price = float(assigned_worker.get("rate", 500.0))
-    
+
     pricing = calculate_payment_breakdown(base_price)
 
     order_data = {
@@ -681,40 +955,60 @@ def create_checkout(task_id):
 @app.route("/verify-payment", methods=["POST"])
 def verify_payment():
     data = request.get_json() or {}
-    razorpay_payment_id = data.get('razorpay_payment_id')
-    
+    razorpay_payment_id = data.get("razorpay_payment_id")
+    task_id = data.get("task_id") or session.get("task_id", 1)
+
     assigned_worker = session.get("assigned_worker", {})
     base_amount = float(assigned_worker.get("rate", 500))
 
-    payout_result = disburse_worker_payout(worker=assigned_worker, task_id=1, base_amount=base_amount)
+    if task_id:
+        try:
+            db_task = db.session.get(Task, int(task_id))
+            if db_task:
+                db_task.status = "completed"
+                db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            print(f"[PAYMENT TASK COMPLETE ERROR]: {e}")
 
-    return jsonify({
-        "status": "success", 
-        "payment_id": razorpay_payment_id,
-        "payout_status": payout_result
-    })
+    payout_result = disburse_worker_payout(
+        worker=assigned_worker, task_id=int(task_id), base_amount=base_amount
+    )
+
+    return jsonify(
+        {
+            "status": "success",
+            "payment_id": razorpay_payment_id,
+            "payout_status": payout_result,
+        }
+    )
 
 
 @app.route("/api/worker/update-location", methods=["POST"])
 def update_worker_location():
-    data = request.get_json() or {}
-    worker_id = session.get("user_id")
-    lat = data.get("lat")
-    lon = data.get("lon")
+    try:
+        data = request.get_json() or {}
+        user_key = session.get("user")
+        lat = data.get("lat")
+        lon = data.get("lon")
 
-    if not worker_id or lat is None or lon is None:
-        return jsonify({"error": "Missing coordinates or authentication"}), 400
+        if not user_key or lat is None or lon is None:
+            return jsonify({"error": "Missing coordinates or authentication"}), 400
 
-    loc_record = WorkerLocation.query.filter_by(worker_id=worker_id).first()
-    if not loc_record:
-        loc_record = WorkerLocation(worker_id=worker_id, lat=float(lat), lon=float(lon))
-        db.session.add(loc_record)
-    else:
-        loc_record.lat = float(lat)
-        loc_record.lon = float(lon)
+        user_obj = safe_user_query(user_key)
+        if not user_obj:
+            return jsonify({"error": "Worker profile not found"}), 404
 
-    db.session.commit()
-    return jsonify({"status": "success"})
+        user_obj.lat = float(lat)
+        user_obj.lon = float(lon)
+        db.session.commit()
+
+        return jsonify({"status": "success", "lat": user_obj.lat, "lon": user_obj.lon})
+
+    except Exception as e:
+        db.session.rollback()
+        print(f"[LOCATION UPDATE ERROR]: {e}")
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/api/worker/live-location")
@@ -723,39 +1017,44 @@ def get_live_location():
     if not assigned_worker:
         return jsonify({"error": "No worker assigned"}), 404
 
-    worker_id = assigned_worker.get("id")
-    loc_record = WorkerLocation.query.filter_by(worker_id=worker_id).first()
+    worker_db_id = assigned_worker.get("db_id")
+    worker_user = None
+    if worker_db_id:
+        try:
+            worker_user = db.session.get(User, int(worker_db_id))
+        except Exception:
+            db.session.rollback()
 
-    if not loc_record:
-        return jsonify({
-            "lat": assigned_worker.get("lat", 17.3850),
-            "lon": assigned_worker.get("lon", 78.4867),
-            "distance": assigned_worker.get("distance", "1.5")
-        })
+    lat = (
+        worker_user.lat
+        if (worker_user and worker_user.lat is not None)
+        else assigned_worker.get("lat", 17.3850)
+    )
+    lon = (
+        worker_user.lon
+        if (worker_user and worker_user.lon is not None)
+        else assigned_worker.get("lon", 78.4867)
+    )
 
     task_info = session.get("task", {})
     distance = assigned_worker.get("distance", "1.5")
-    
-    if task_info.get("lat") and task_info.get("lon"):
-        distance = calculate_distance(
-            task_info.get("lat"), 
-            task_info.get("lon"), 
-            loc_record.lat, 
-            loc_record.lon
-        )
 
-    return jsonify({
-        "lat": loc_record.lat,
-        "lon": loc_record.lon,
-        "distance": distance
-    })
+    if task_info.get("lat") and task_info.get("lon"):
+        distance = calculate_distance(task_info.get("lat"), task_info.get("lon"), lat, lon)
+
+    return jsonify({"lat": lat, "lon": lon, "distance": distance})
 
 
 @app.route("/api/chat", methods=["POST"])
 def chat():
     try:
         if not client:
-            return jsonify({"response": "API key missing. Please check GEMINI_API_KEY in your .env file."}), 400
+            return (
+                jsonify(
+                    {"response": "API key missing. Please check GROQ_API_KEY in your .env file."}
+                ),
+                400,
+            )
 
         data = request.get_json() or {}
         prompt = data.get("prompt", "").strip()
@@ -763,14 +1062,43 @@ def chat():
         if not prompt:
             return jsonify({"response": "Please ask a question."}), 400
 
+        system_instructions = """
+        You are the official AI Assistant for Taskmate, a neighbourhood home services platform.
+        
+        FOUNDER & CREATOR INFORMATION:
+        - Founder / Creator: Sriram
+        - About the Founder: Taskmate was envisioned and built by Sriram to empower local service providers and simplify home assistance for everyday users. He is a 17-year-old student and self-taught programmer who developed TaskmateAI single-handedly.
+        - Vision: To empower local service providers and bridge the gap between skilled workers and those in need of their services.
+        
+        PLATFORM DETAILS:
+        - Services: Electricians, Plumbers, Cleaners, Carpenters, and Caregivers.
+        - Pricing: 5% platform fee + 18% GST on the fee, calculated transparently via Razorpay.
+        - Live Tracking: Real-time map tracking powered by MapLibre GL and Google Maps navigation.
+        
+        INSTRUCTIONS:
+        - If a user asks who founded, built, or created Taskmate, enthusiastically introduce Sriram as the founder!
+        - Keep answers concise, helpful, and friendly.
+        """
+
         try:
-            response = client.models.generate_content(
-                model="gemini-3.8-flash",
-                contents=f"You are a helpful assistant for Taskmate, a home services platform. Answer concisely: {prompt}",
+            response = client.chat.completions.create(
+                model="llama-3.1-8b-instant",
+                messages=[
+                    {"role": "system", "content": system_instructions},
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0.7,
             )
-            return jsonify({"response": response.text})
-        except Exception:
-            return jsonify({"response": f"I can help you schedule a qualified provider for: '{prompt}'. Enter your task details above to match local workers!"})
+            return jsonify({"response": response.choices[0].message.content})
+
+        except Exception as e:
+            print(f"[GROQ CHAT ERROR DETAILS]: {e}")
+            return jsonify(
+                {
+                    "response": "I'm having trouble connecting to Groq AI right now. Check your terminal logs for details!"
+                }
+            )
+
     except Exception as e:
         print(f"[CHAT ROUTE CRASH]: {e}")
         return jsonify({"response": "Internal server error occurred."}), 500
@@ -795,18 +1123,27 @@ def register():
         phone = request.form.get("phone", "").strip()
         password = request.form.get("password", "").strip()
 
-        clean_phone = "".join(filter(str.isdigit, phone))[-10:] if phone else None
+        if not (email or phone) or not password:
+            flash("Please provide an email or phone number and password.", "error")
+            return redirect(url_for("register"))
+
+        digits = "".join(filter(str.isdigit, phone))
+        clean_phone = digits[-10:] if len(digits) >= 10 else None
         email_val = email if email else None
 
         filters = []
         if email_val:
-            filters.append(User.email == email_val)
+            filters.append(User.email.ilike(email_val))
         if clean_phone:
             filters.append(User.phone == clean_phone)
 
         existing_user = None
         if filters:
-            existing_user = User.query.filter(db.or_(*filters)).first()
+            try:
+                existing_user = User.query.filter(db.or_(*filters)).first()
+            except (OperationalError, DBAPIError):
+                db.session.rollback()
+                existing_user = User.query.filter(db.or_(*filters)).first()
 
         if existing_user:
             flash("Email or Phone Number is already registered.", "error")
@@ -838,47 +1175,49 @@ def verify():
 
     if request.method == "POST":
         user_otp = request.form.get("otp", "").strip()
-        verified = False
 
-        if user_otp and pending_user.get("otp") and user_otp == pending_user["otp"]:
-            verified = True
-        else:
+        if not (user_otp and pending_user.get("otp") and user_otp == pending_user["otp"]):
             flash("Invalid OTP code. Try again.", "error")
             return render_template("verify.html")
 
-        if verified:
-            email_val = pending_user.get("email")
-            phone_val = pending_user.get("phone")
+        email_val = pending_user.get("email") or None
+        phone_val = pending_user.get("phone") or None
 
-            filters = []
-            if email_val:
-                filters.append(User.email == email_val)
-            if phone_val:
-                filters.append(User.phone == phone_val)
+        filters = []
+        if email_val:
+            filters.append(User.email.ilike(email_val))
+        if phone_val:
+            filters.append(User.phone == phone_val)
 
+        try:
             existing_user = User.query.filter(db.or_(*filters)).first() if filters else None
 
             if not existing_user:
                 new_user = User(
-                    name=pending_user.get("name", "User"),
+                    name=pending_user.get("name") or "User",
                     email=email_val,
                     phone=phone_val,
                     password=pending_user["password"],
                     role=pending_user.get("role", "user"),
-                    skills=pending_user.get("skills", ""),
-                    description=pending_user.get("description", ""),
+                    skills=pending_user.get("skills") or None,
+                    description=pending_user.get("description") or None,
                 )
                 db.session.add(new_user)
                 db.session.commit()
-
-            session["user"] = email_val or phone_val
-            session["role"] = pending_user.get("role", "user")
-            session.pop("pending_user", None)
-
-            flash("Account verified and saved successfully!", "success")
-            if session["role"] == "worker":
-                return redirect(url_for("worker_dashboard"))
+        except Exception as e:
+            db.session.rollback()
+            print(f"[VERIFY USER SAVE ERROR]: {e}")
+            flash("Error saving account. Please try logging in.", "error")
             return redirect(url_for("login"))
+
+        session["user"] = email_val or phone_val
+        session["role"] = pending_user.get("role", "user")
+        session.pop("pending_user", None)
+
+        flash("Account verified and saved successfully!", "success")
+        if session["role"] == "worker":
+            return redirect(url_for("worker_dashboard"))
+        return redirect(url_for("login"))
 
     return render_template("verify.html")
 
@@ -889,16 +1228,11 @@ def login():
         login_input = request.form.get("login_input", "").strip()
         password = request.form.get("password", "").strip()
 
-        digits_only = "".join(filter(str.isdigit, login_input))
-        clean_input = digits_only[-10:] if len(digits_only) >= 10 else login_input
-
-        user = User.query.filter(
-            (User.email == login_input) | (User.phone == clean_input)
-        ).first()
+        user = safe_user_query(login_input)
 
         if not user:
             flash("User not found.", "error")
-        elif not (check_password_hash(user.password, password) or user.password == password):
+        elif not check_user_password(user.password, password):
             flash("Incorrect password", "error")
         else:
             session["user"] = user.email or user.phone
@@ -938,11 +1272,14 @@ def worker_register():
 
         otp = generate_otp()
         is_email = "@" in contact
+        digits = "".join(filter(str.isdigit, contact))
+        clean_phone = digits[-10:] if (not is_email and len(digits) >= 10) else None
+
         session["pending_user"] = {
-            "name": name,
+            "name": name or "Service Partner",
             "contact": contact,
             "email": contact if is_email else None,
-            "phone": "".join(filter(str.isdigit, contact))[-10:] if not is_email else None,
+            "phone": clean_phone,
             "password": generate_password_hash(password),
             "skills": skills,
             "description": description,
@@ -964,18 +1301,15 @@ def worker_login():
     if request.method == "POST":
         contact = request.form.get("contact", "").strip()
         password = request.form.get("password", "").strip()
-        clean_contact = "".join(filter(str.isdigit, contact))[-10:] if "@" not in contact else contact
 
-        user = User.query.filter(
-            ((User.email == clean_contact) | (User.phone == clean_contact)) & (User.role == "worker")
-        ).first()
+        user = safe_user_query(contact, role_filter="worker")
 
         if not user:
             flash("User not found.", "error")
-        elif not (check_password_hash(user.password, password) or user.password == password):
+        elif not check_user_password(user.password, password):
             flash("Incorrect password", "error")
         else:
-            session["user"] = contact
+            session["user"] = user.email or user.phone
             session["role"] = "worker"
             flash("Worker logged in successfully!", "success")
             return redirect(url_for("worker_dashboard"))
@@ -990,29 +1324,66 @@ def worker_dashboard():
         flash("Please log in as a worker to access this page.", "error")
         return redirect(url_for("worker_login"))
 
-    clean_key = "".join(filter(str.isdigit, str(user_key)))[-10:] if "@" not in str(user_key) else user_key
-    user_obj = User.query.filter((User.email == clean_key) | (User.phone == clean_key)).first()
+    user_obj = safe_user_query(user_key, role_filter="worker")
 
     worker_profile = {
+        "id": user_obj.id if user_obj else None,
         "name": user_obj.name if user_obj else "Worker",
         "skills": user_obj.skills if user_obj else "General Service",
         "description": user_obj.description if user_obj else "No service bio provided.",
+        "lat": user_obj.lat if user_obj else None,
+        "lon": user_obj.lon if user_obj else None,
     }
 
-    active_job = session.get("task") if session.get("assigned_worker") else None
-    current_status = session.get("status", "Worker On The Way")
+    pending_tasks = []
+    active_job = None
 
-    pending_tasks = [
-        {
-            "id": 101,
-            "title": session.get("task", {}).get("title", "Fix Ceiling Fan"),
-            "description": session.get("task", {}).get("description", "Fan making high noise"),
-            "location": session.get("task", {}).get("location", "Meerpet, Hyderabad"),
-            "budget": session.get("task", {}).get("budget", "450"),
-            "urgency": "High",
-            "time_posted": "10 mins ago",
-        }
-    ]
+    try:
+        if user_obj and user_obj.skills:
+            # Extract clean primary skill token (e.g. "electrical" from "Electrical & Appliance Repair")
+            skill_tokens = [
+                tok.lower()
+                for tok in re.split(r"[,&/\s]+", user_obj.skills)
+                if len(tok) >= 3
+            ]
+            primary_keyword = skill_tokens[0][:5] if skill_tokens else ""
+            if primary_keyword:
+                pending_tasks = (
+                    Task.query.filter(
+                        Task.status == "pending",
+                        Task.category.ilike(f"%{primary_keyword}%"),
+                    )
+                    .order_by(Task.created_at.desc())
+                    .all()
+                )
+
+        if not pending_tasks:
+            pending_tasks = (
+                Task.query.filter_by(status="pending")
+                .order_by(Task.created_at.desc())
+                .all()
+            )
+
+        # Attach live distance from worker to each customer task & sort nearest first
+        if user_obj and user_obj.lat is not None and user_obj.lon is not None:
+            for t in pending_tasks:
+                if t.lat is not None and t.lon is not None:
+                    t.distance_km = calculate_distance(user_obj.lat, user_obj.lon, t.lat, t.lon)
+                else:
+                    t.distance_km = None
+            pending_tasks.sort(key=lambda x: x.distance_km if x.distance_km is not None else 9999.0)
+
+        if user_obj:
+            active_job = (
+                Task.query.filter_by(worker_id=user_obj.id, status="accepted")
+                .order_by(Task.created_at.desc())
+                .first()
+            )
+    except Exception as e:
+        db.session.rollback()
+        print(f"[DASHBOARD TASK QUERY ERROR]: {e}")
+
+    current_status = session.get("status", "Worker On The Way") if active_job else "Looking for tasks"
 
     return render_template(
         "worker_dashboard.html",
@@ -1023,8 +1394,8 @@ def worker_dashboard():
     )
 
 
-# --- Database Creation & Entry Point ---
+# --- Safe Production Entry Point ---
 if __name__ == "__main__":
-    with app.app_context():
-        db.create_all()
-    app.run(debug=True, port=5000)
+    port = int(os.environ.get("PORT", 5000))
+    debug_mode = os.environ.get("FLASK_DEBUG", "1") == "1"
+    app.run(host="0.0.0.0", port=port, debug=debug_mode)

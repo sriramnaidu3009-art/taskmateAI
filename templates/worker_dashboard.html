@@ -1,529 +1,723 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Taskmate Pro - Worker Portal</title>
-    <style>
-        /* Base Styles */
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-        }
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Worker Portal · Taskmate Pro</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #f8faf9;
+      --surface: #ffffff;
+      --dark: #0f172a;
+      --dark-card: #111827;
+      --primary: #10b981;
+      --primary-dark: #059669;
+      --primary-soft: #d1fae5;
+      --text: #1e293b;
+      --muted: #64748b;
+      --border: #e2e8f0;
+      --danger: #ef4444;
+      --radius: 16px;
+    }
 
-        body {
-            background-color: #f5f5f4;
-            color: #292524;
-            min-height: 100vh;
-            display: flex;
-            flex-direction: column;
-        }
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
 
-        /* Header */
-        header {
-            background-color: #1c1917;
-            color: #ffffff;
-            padding: 1rem 1.5rem;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-        }
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background-color: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+      min-height: 100vh;
+    }
 
-        .header-brand {
-            display: flex;
-            align-items: center;
-            gap: 0.75rem;
-        }
+    /* --- Top Navigation Bar --- */
+    .topbar {
+      background: var(--dark);
+      color: #fff;
+      padding: 0.9rem 2rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12);
+    }
 
-        .brand-logo {
-            color: #2dd4bf;
-            font-weight: bold;
-            font-size: 1.25rem;
-            text-decoration: none;
-            transition: color 0.2s;
-        }
+    .brand-group {
+      display: flex;
+      align-items: center;
+      gap: 0.85rem;
+    }
 
-        .brand-logo:hover {
-            color: #5eead4;
-        }
+    .brand {
+      font-weight: 700;
+      font-size: 1.15rem;
+      color: #34d399;
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      text-decoration: none;
+    }
 
-        .badge-dashboard {
-            font-size: 0.75rem;
-            background-color: #292524;
-            color: #d6d3d1;
-            padding: 0.25rem 0.625rem;
-            border-radius: 9999px;
-            border: 1px solid #44403c;
-        }
+    .portal-pill {
+      background: rgba(255, 255, 255, 0.1);
+      color: #cbd5e1;
+      font-size: 0.75rem;
+      font-weight: 500;
+      padding: 0.25rem 0.7rem;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+    }
 
-        .header-status {
-            display: flex;
-            align-items: center;
-            gap: 1rem;
-            font-size: 0.875rem;
-        }
+    .nav-actions {
+      display: flex;
+      align-items: center;
+      gap: 1.25rem;
+      font-size: 0.85rem;
+    }
 
-        .status-indicator {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-        }
+    .gps-status {
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+      color: #cbd5e1;
+      font-size: 0.8rem;
+    }
 
-        .pulse-dot {
-            width: 0.625rem;
-            height: 0.625rem;
-            border-radius: 9999px;
-            background-color: #10b981;
-        }
+    .pulse-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--primary);
+      box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.2);
+    }
 
-        .logout-link {
-            color: #fb7185;
-            font-weight: 500;
-            text-decoration: none;
-            transition: color 0.2s;
-        }
+    .logout-link {
+      color: #f87171;
+      text-decoration: none;
+      font-weight: 600;
+      padding: 0.4rem 0.8rem;
+      border-radius: 8px;
+      transition: background 0.15s;
+    }
 
-        .logout-link:hover {
-            color: #f43f5e;
-        }
+    .logout-link:hover {
+      background: rgba(248, 113, 113, 0.12);
+    }
 
-        /* Container Layout */
-        main {
-            flex: 1;
-            max-width: 64rem;
-            width: 100%;
-            margin: 0 auto;
-            padding: 1.5rem 1rem;
-        }
+    /* --- Main Container & Grid --- */
+    .container {
+      max-width: 1120px;
+      margin: 2rem auto;
+      padding: 0 1.25rem;
+    }
 
-        /* Profile Banner Card */
-        .card {
-            background-color: #ffffff;
-            border: 1px solid #e7e5e4;
-            border-radius: 1rem;
-            padding: 1.5rem;
-            box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
-            margin-bottom: 2rem;
-        }
+    .flash-banner {
+      background: #ecfdf5;
+      border: 1px solid #a7f3d0;
+      color: #065f46;
+      padding: 0.85rem 1.1rem;
+      border-radius: 12px;
+      margin-bottom: 1.5rem;
+      font-size: 0.9rem;
+      font-weight: 500;
+    }
 
-        .profile-banner {
-            display: flex;
-            flex-direction: column;
-            justify-content: space-between;
-            align-items: flex-start;
-            gap: 1rem;
-        }
+    /* --- Worker Profile Card --- */
+    .profile-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.5rem 1.75rem;
+      margin-bottom: 1.75rem;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 1.25rem;
+    }
 
-        .profile-title {
-            display: flex;
-            align-items: center;
-            gap: 0.75rem;
-            margin-bottom: 0.25rem;
-        }
+    .profile-main {
+      flex: 1 1 320px;
+    }
 
-        .profile-title h2 {
-            font-size: 1.5rem;
-            font-weight: 700;
-            color: #1c1917;
-        }
+    .profile-header {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.75rem;
+      margin-bottom: 0.5rem;
+    }
 
-        .skill-badge {
-            padding: 0.25rem 0.75rem;
-            border-radius: 9999px;
-            font-size: 0.75rem;
-            font-weight: 600;
-            background-color: #ccfbf1;
-            color: #115e59;
-            border: 1px solid #99f6e4;
-        }
+    .profile-header h1 {
+      font-size: 1.45rem;
+      font-weight: 700;
+      color: var(--dark);
+    }
 
-        .profile-desc {
-            font-size: 0.875rem;
-            color: #57534e;
-            max-width: 42rem;
-        }
+    .skill-badge {
+      display: inline-block;
+      background: var(--primary-soft);
+      color: #065f46;
+      font-size: 0.78rem;
+      font-weight: 600;
+      padding: 0.3rem 0.8rem;
+      border-radius: 999px;
+      max-width: 100%;
+      word-break: break-word;
+    }
 
-        .profile-meta {
-            font-size: 0.75rem;
-            color: #78716c;
-            border-top: 1px solid #f5f5f4;
-            padding-top: 0.75rem;
-            width: 100%;
-        }
+    .profile-bio {
+      color: var(--muted);
+      font-size: 0.92rem;
+      margin-bottom: 1rem;
+    }
 
-        /* Active Job Card */
-        .active-job-card {
-            background-color: #ffffff;
-            border: 1px solid #e7e5e4;
-            border-radius: 1rem;
-            overflow: hidden;
-            box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
-            margin-bottom: 2rem;
-        }
+    .profile-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1.25rem;
+      font-size: 0.82rem;
+      color: var(--muted);
+      padding-top: 0.85rem;
+      border-top: 1px solid var(--border);
+    }
 
-        .active-job-header {
-            background-color: #1c1917;
-            color: #ffffff;
-            padding: 1.5rem;
-            display: flex;
-            flex-direction: column;
-            justify-content: space-between;
-            align-items: flex-start;
-            gap: 1rem;
-        }
+    .profile-meta strong {
+      color: var(--text);
+    }
 
-        .active-badge {
-            font-size: 0.75rem;
-            background-color: #10b981;
-            color: #1c1917;
-            font-weight: 700;
-            padding: 0.25rem 0.625rem;
-            border-radius: 9999px;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-        }
+    /* --- Dashboard Two-Column Layout --- */
+    .dashboard-grid {
+      display: grid;
+      grid-template-columns: 360px 1fr;
+      gap: 1.75rem;
+      align-items: start;
+    }
 
-        .payout-amount {
-            font-size: 1.875rem;
-            font-weight: 800;
-            color: #2dd4bf;
-        }
+    @media (max-width: 860px) {
+      .dashboard-grid {
+        grid-template-columns: 1fr;
+      }
+      .topbar {
+        padding: 0.85rem 1rem;
+      }
+    }
 
-        .active-job-body {
-            display: grid;
-            grid-template-columns: 1fr;
-            gap: 1.5rem;
-            padding: 1.5rem;
-        }
+    /* --- Active Job Card (Left Column) --- */
+    .active-card {
+      background: var(--dark-card);
+      color: #fff;
+      border-radius: var(--radius);
+      padding: 1.6rem;
+      box-shadow: 0 10px 25px rgba(15, 23, 42, 0.15);
+    }
 
-        .map-box {
-            width: 100%;
-            height: 16rem;
-            border-radius: 0.75rem;
-            overflow: hidden;
-            border: 1px solid #e7e5e4;
-            margin-top: 0.5rem;
-            margin-bottom: 0.5rem;
-        }
+    .active-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      background: var(--primary);
+      color: #052e16;
+      font-size: 0.7rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      padding: 0.25rem 0.65rem;
+      border-radius: 999px;
+      margin-bottom: 0.9rem;
+    }
 
-        .btn-map {
-            display: block;
-            text-align: center;
-            background-color: #f5f5f4;
-            color: #292524;
-            font-size: 0.75rem;
-            font-weight: 600;
-            padding: 0.625rem;
-            border-radius: 0.5rem;
-            border: 1px solid #d6d3d1;
-            text-decoration: none;
-            transition: background-color 0.2s;
-        }
+    .active-title {
+      font-size: 1.35rem;
+      font-weight: 700;
+      margin-bottom: 0.35rem;
+    }
 
-        .btn-map:hover {
-            background-color: #e7e5e4;
-        }
+    .active-location {
+      color: #94a3b8;
+      font-size: 0.88rem;
+      margin-bottom: 1.15rem;
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+    }
 
-        .status-box {
-            padding: 1rem;
-            background-color: #ccfbf1;
-            border: 1px solid #99f6e4;
-            border-radius: 0.75rem;
-            margin-top: 0.75rem;
-        }
+    .payout-box {
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 12px;
+      padding: 0.9rem 1.1rem;
+      margin-bottom: 1.25rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
 
-        /* Buttons & Actions */
-        .btn-primary {
-            width: 100%;
-            background-color: #115e59;
-            color: #ffffff;
-            font-weight: 700;
-            padding: 0.75rem 1.5rem;
-            border-radius: 0.75rem;
-            border: none;
-            cursor: pointer;
-            transition: background-color 0.2s;
-        }
+    .payout-label {
+      font-size: 0.78rem;
+      color: #94a3b8;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
 
-        .btn-primary:hover {
-            background-color: #134e4a;
-        }
+    .payout-amount {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: #34d399;
+    }
 
-        .btn-warning {
-            width: 100%;
-            background-color: #f59e0b;
-            color: #ffffff;
-            font-weight: 700;
-            padding: 0.875rem;
-            border-radius: 0.75rem;
-            border: none;
-            cursor: pointer;
-            transition: background-color 0.2s;
-        }
+    .btn-maps {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      width: 100%;
+      background: var(--primary);
+      color: #052e16;
+      font-weight: 700;
+      font-size: 0.92rem;
+      text-decoration: none;
+      padding: 0.85rem 1rem;
+      border-radius: 11px;
+      transition: background 0.15s, transform 0.1s;
+      margin-bottom: 0.85rem;
+    }
 
-        .btn-warning:hover {
-            background-color: #d97706;
-        }
+    .btn-maps:hover {
+      background: #34d399;
+      transform: translateY(-1px);
+    }
 
-        .btn-success {
-            width: 100%;
-            background-color: #059669;
-            color: #ffffff;
-            font-weight: 700;
-            padding: 0.875rem;
-            border-radius: 0.75rem;
-            border: none;
-            cursor: pointer;
-            transition: background-color 0.2s;
-        }
+    .status-controls {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.6rem;
+    }
 
-        .btn-success:hover {
-            background-color: #047857;
-        }
+    .btn-status {
+      background: rgba(255, 255, 255, 0.09);
+      color: #e2e8f0;
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      padding: 0.6rem 0.75rem;
+      border-radius: 9px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
 
-        /* Responsive Media Queries */
-        @media (min-width: 768px) {
-            main {
-                padding: 2.5rem;
-            }
+    .btn-status:hover {
+      background: rgba(255, 255, 255, 0.18);
+    }
 
-            .profile-banner {
-                flex-direction: row;
-                align-items: center;
-            }
+    .btn-status.complete {
+      background: rgba(16, 185, 129, 0.18);
+      border-color: rgba(16, 185, 129, 0.4);
+      color: #6ee7b7;
+    }
 
-            .profile-meta {
-                border-top: none;
-                padding-top: 0;
-                width: auto;
-                text-align: right;
-            }
+    .no-active-card {
+      background: var(--surface);
+      border: 1px dashed #cbd5e1;
+      border-radius: var(--radius);
+      padding: 2rem 1.5rem;
+      text-align: center;
+      color: var(--muted);
+    }
 
-            .active-job-header {
-                flex-direction: row;
-                align-items: center;
-            }
+    .no-active-card h3 {
+      color: var(--text);
+      font-size: 1rem;
+      margin-bottom: 0.35rem;
+    }
 
-            .active-job-body {
-                grid-template-columns: 1fr 1fr;
-            }
+    /* --- Nearby Requests Feed (Right Column) --- */
+    .feed-header {
+      margin-bottom: 1rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+    }
 
-            .job-card {
-                flex-direction: row;
-                align-items: center;
-            }
+    .feed-header h2 {
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: var(--dark);
+    }
 
-            .btn-accept {
-                width: auto;
-            }
-        }
-    </style>
+    .feed-header p {
+      font-size: 0.88rem;
+      color: var(--muted);
+    }
+
+    .task-list {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    .task-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.35rem 1.5rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 1.25rem;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+
+    .task-card:hover {
+      border-color: #cbd5e1;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04);
+    }
+
+    .task-info {
+      flex: 1;
+    }
+
+    .task-badges {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .badge {
+      font-size: 0.72rem;
+      font-weight: 600;
+      padding: 0.2rem 0.6rem;
+      border-radius: 6px;
+      background: #f1f5f9;
+      color: #475569;
+    }
+
+    .badge.category {
+      background: #eff6ff;
+      color: #1d4ed8;
+    }
+
+    .badge.distance {
+      background: #ecfdf5;
+      color: #047857;
+    }
+
+    .task-info h3 {
+      font-size: 1.08rem;
+      font-weight: 700;
+      color: var(--dark);
+      margin-bottom: 0.25rem;
+    }
+
+    .task-desc {
+      font-size: 0.88rem;
+      color: var(--muted);
+      margin-bottom: 0.6rem;
+    }
+
+    .task-loc {
+      font-size: 0.8rem;
+      color: #64748b;
+    }
+
+    .task-action {
+      text-align: right;
+      min-width: 120px;
+    }
+
+    .task-price {
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: var(--dark);
+      margin-bottom: 0.6rem;
+    }
+
+    .btn-accept {
+      background: var(--dark);
+      color: #fff;
+      border: none;
+      padding: 0.65rem 1.15rem;
+      border-radius: 10px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s;
+      width: 100%;
+    }
+
+    .btn-accept:hover {
+      background: var(--primary-dark);
+    }
+
+    .btn-accept:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    .empty-feed {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 2.5rem 1.5rem;
+      text-align: center;
+      color: var(--muted);
+    }
+  </style>
 </head>
 <body>
 
-    <!-- Header -->
-    <header>
-        <div class="header-brand">
-            <a href="/" class="brand-logo">✦ Taskmate Pro</a>
-            <span class="badge-dashboard">Worker Dashboard</span>
-        </div>
-        <div class="header-status">
-            <div class="status-indicator">
-                <span class="pulse-dot"></span>
-                <span>Active Session</span>
-            </div>
-            <a href="{{ url_for('logout') }}" class="logout-link">Logout</a>
-        </div>
-    </header>
+  <!-- Top Navigation -->
+  <header class="topbar">
+    <div class="brand-group">
+      <a href="{{ url_for('worker_dashboard') }}" class="brand">✦ Taskmate Pro</a>
+      <span class="portal-pill">Worker Dashboard</span>
+    </div>
+    <div class="nav-actions">
+      <div class="gps-status">
+        <span class="pulse-dot" id="gps-dot"></span>
+        <span id="gps-label">Syncing GPS...</span>
+      </div>
+      <a href="{{ url_for('logout') }}" class="logout-link">Logout</a>
+    </div>
+  </header>
 
-    <!-- Main Container -->
-    <main>
+  <main class="container">
+    <!-- Flash Messages -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, message in messages %}
+          <div class="flash-banner">{{ message }}</div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
 
-        <!-- Worker Profile Header Banner -->
-        <div class="card profile-banner">
-            <div>
-                <div class="profile-title">
-                    <h2>Welcome, {{ worker.get('name', 'Worker') }}</h2>
-                    <span class="skill-badge">
-                        {{ worker.get('skills', 'General Service') }}
-                    </span>
-                </div>
-                <p class="profile-desc">
-                    {{ worker.get('description', 'No service bio provided.') }}
-                </p>
-            </div>
-            <div class="profile-meta">
-                <p><strong>Account ID:</strong> {{ session.get('user') }}</p>
-                <p><strong>Role:</strong> Verified Service Partner</p>
-            </div>
+    <!-- Worker Profile Overview -->
+    <section class="profile-card">
+      <div class="profile-main">
+        <div class="profile-header">
+          <h1>Welcome, {{ worker.name }}</h1>
+          <span class="skill-badge">{{ worker.skills }}</span>
         </div>
+        <p class="profile-bio">{{ worker.description }}</p>
+        <div class="profile-meta">
+          <span><strong>Account ID:</strong> {{ session.get('user', 'Verified Partner') }}</span>
+          <span><strong>Role:</strong> Verified Service Partner</span>
+          <span><strong>Current Status:</strong> <span id="current-status-text">{{ current_status }}</span></span>
+        </div>
+      </div>
+    </section>
 
-        <!-- Active Accepted Job View -->
+    <!-- Main Dashboard Content Grid -->
+    <div class="dashboard-grid">
+
+      <!-- Left Column: Active Job Panel -->
+      <aside>
         {% if active_job %}
-        <div class="active-job-card">
-            <div class="active-job-header">
-                <div>
-                    <span class="active-badge">Active Job</span>
-                    <h1 style="font-size: 1.5rem; font-weight: bold; margin-top: 0.5rem;">{{ active_job.title }}</h1>
-                    <p style="color: #a8a29e; font-size: 0.875rem;">📍 {{ active_job.location }}</p>
-                </div>
-                <div style="text-align: right;">
-                    <p style="font-size: 0.75rem; color: #a8a29e;">Total Payout</p>
-                    <p class="payout-amount">₹{{ active_job.budget }}</p>
-                </div>
+          <div class="active-card">
+            <span class="active-pill">● Active Job</span>
+            <h2 class="active-title">{{ active_job.title }}</h2>
+            <p class="active-location">📍 {{ active_job.location or 'Exact Customer GPS Pin' }}</p>
+
+            <div class="payout-box">
+              <div>
+                <div class="payout-label">Total Payout</div>
+                <div style="font-size: 0.78rem; color: #cbd5e1;">Direct Earnings</div>
+              </div>
+              <div class="payout-amount">₹{{ active_job.budget }}</div>
             </div>
 
-            <div class="active-job-body">
-                <!-- Navigation & Map -->
-                <div>
-                    <h3 style="font-weight: bold; color: #1c1917;">🗺️ Live Navigation</h3>
-                    <div class="map-box">
-                        <iframe
-                            width="100%"
-                            height="100%"
-                            frameborder="0"
-                            style="border:0"
-                            src="https://maps.google.com/maps?q={{ active_job.location | urlencode }}&t=&z=14&ie=UTF8&iwloc=&output=embed"
-                            allowfullscreen>
-                        </iframe>
-                    </div>
-                    <a href="https://www.google.com/maps/dir/?api=1&destination={{ active_job.location | urlencode }}" 
-                       target="_blank" 
-                       class="btn-map">
-                        Open in Google Maps App ↗
-                    </a>
-                </div>
+            <!-- Google Maps Universal Turn-by-Turn Navigation Link -->
+            {% if active_job.lat and active_job.lon %}
+              <a href="https://www.google.com/maps/dir/?api=1&destination={{ active_job.lat }},{{ active_job.lon }}&travelmode=driving"
+                 target="_blank"
+                 rel="noopener noreferrer"
+                 class="btn-maps">
+                🗺️ Navigate to Customer
+              </a>
+            {% else %}
+              <a href="https://www.google.com/maps/search/?api=1&query={{ active_job.location | urlencode }}"
+                 target="_blank"
+                 rel="noopener noreferrer"
+                 class="btn-maps">
+                🗺️ Open Customer Area in Maps
+              </a>
+            {% endif %}
 
-                <!-- Job Controls & Status -->
-                <div style="display: flex; flex-direction: column; justify-content: space-between;">
-                    <div>
-                        <h3 style="font-weight: bold; color: #1c1917; margin-bottom: 0.5rem;">Task Details</h3>
-                        <p style="font-size: 0.875rem; color: #44403c; background-color: #fafaf9; padding: 1rem; border-radius: 0.75rem; border: 1px solid #f5f5f4;">
-                            {{ active_job.description }}
-                        </p>
-                        <div class="status-box">
-                            <p style="font-size: 0.75rem; color: #115e59; font-weight: 600;">Current Status:</p>
-                            <p style="font-size: 1.125rem; font-weight: bold; color: #134e4a;" id="worker-status-display">{{ current_status }}</p>
-                        </div>
-                    </div>
-
-                    <!-- Workflow Buttons -->
-                    <div style="margin-top: 1rem;">
-                        {% if current_status == "Worker On The Way" or current_status == "Assigned" %}
-                        <button onclick="updateJobStatus('Work In Progress')" class="btn-warning">
-                            ▶ Start Work
-                        </button>
-                        {% elif current_status == "Work In Progress" %}
-                        <button onclick="updateJobStatus('Completed')" class="btn-success">
-                            ✓ Mark Job Completed
-                        </button>
-                        {% elif current_status == "Completed" %}
-                        <div style="background-color: #d1fae5; border: 1px solid #6ee7b7; color: #065f46; padding: 1rem; border-radius: 0.75rem; text-align: center; font-weight: bold;">
-                            🎉 Job Completed! Payout of ₹{{ active_job.budget }} Released to Your Account.
-                        </div>
-                        {% endif %}
-                    </div>
-                </div>
+            <div class="status-controls">
+              <button type="button" class="btn-status" onclick="updateJobStatus('Arrived at Location')">
+                📍 Mark Arrived
+              </button>
+              <button type="button" class="btn-status complete" onclick="updateJobStatus('Job Completed')">
+                ✓ Complete Job
+              </button>
             </div>
-        </div>
+          </div>
+        {% else %}
+          <div class="no-active-card">
+            <h3>No Active Assignment</h3>
+            <p style="font-size: 0.85rem;">Accept a nearby customer request from the list to start navigation.</p>
+          </div>
         {% endif %}
+      </aside>
 
-        <!-- Available Jobs Section -->
-        <div style="margin-bottom: 1.5rem;">
-            <h2 style="font-size: 1.25rem; font-weight: bold; color: #1c1917;">Available Nearby Requests</h2>
-            <p style="color: #78716c; font-size: 0.875rem;">Accept jobs in your neighborhood to earn.</p>
+      <!-- Right Column: Available Nearby Customer Requests -->
+      <section>
+        <div class="feed-header">
+          <div>
+            <h2>Available Nearby Requests</h2>
+            <p>Accept jobs in your neighborhood to earn.</p>
+          </div>
         </div>
 
-        <div style="display: flex; flex-direction: column; gap: 1rem;">
+        {% if tasks %}
+          <div class="task-list">
             {% for task in tasks %}
-            <div class="card job-card" style="display: flex; flex-direction: column; justify-content: space-between; gap: 1.5rem; margin-bottom: 0;">
-                <div style="flex: 1;">
-                    <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem;">
-                        <span style="padding: 0.125rem 0.625rem; border-radius: 9999px; font-size: 0.75rem; font-weight: bold; background-color: #fef3c7; color: #92400e;">
-                            {{ task.urgency or 'Standard' }} Urgency
-                        </span>
-                        <span style="font-size: 0.75rem; color: #a8a29e;">Posted {{ task.time_posted }}</span>
-                    </div>
-                    <h3 style="font-size: 1.125rem; font-weight: bold; color: #1c1917; margin-bottom: 0.25rem;">{{ task.title }}</h3>
-                    <p style="font-size: 0.875rem; color: #57534e; margin-bottom: 0.5rem;">{{ task.description }}</p>
-                    <div style="display: flex; gap: 1rem; font-size: 0.75rem; font-weight: 500; color: #78716c;">
-                        <span>📍 {{ task.location }}</span>
-                        <span>💰 Payout: <strong>₹{{ task.budget }}</strong></span>
-                    </div>
+              <article class="task-card" id="task-card-{{ task.id }}">
+                <div class="task-info">
+                  <div class="task-badges">
+                    <span class="badge category">{{ task.category or 'General Service' }}</span>
+                    {% if task.distance_km is defined and task.distance_km is not none %}
+                      <span class="badge distance">⌖ {{ task.distance_km }} km away</span>
+                    {% endif %}
+                  </div>
+                  <h3>{{ task.title }}</h3>
+                  <p class="task-desc">{{ task.description }}</p>
+                  <div class="task-loc">📍 {{ task.location or 'Exact GPS Coordinates Attached' }}</div>
                 </div>
 
-                <button onclick="acceptTask({{ task.id }})" class="btn-primary btn-accept">
+                <div class="task-action">
+                  <div class="task-price">₹{{ task.budget }}</div>
+                  <button type="button"
+                          class="btn-accept"
+                          onclick="acceptTask({{ task.id }}, this)">
                     Accept Job
-                </button>
-            </div>
+                  </button>
+                </div>
+              </article>
             {% endfor %}
-        </div>
+          </div>
+        {% else %}
+          <div class="empty-feed">
+            <h3 style="color: var(--text); margin-bottom: 0.35rem;">No Pending Requests Right Now</h3>
+            <p style="font-size: 0.88rem;">New customer requests matching your skills will appear here automatically.</p>
+          </div>
+        {% endif %}
+      </section>
 
-    </main>
+    </div>
+  </main>
 
-    <script>
-        function acceptTask(taskId) {
-            fetch(`/api/worker/accept-task/${taskId}`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' }
-            })
-            .then(res => res.json())
-            .then(data => {
-                if (data.status === 'success') {
-                    window.location.reload();
-                }
+  <!-- Worker GPS Sync & Task Actions Script -->
+  <script>
+    // 1. High-Accuracy Worker GPS Sync
+    function syncWorkerLocation() {
+      const gpsLabel = document.getElementById('gps-label');
+      const gpsDot = document.getElementById('gps-dot');
+
+      if (!navigator.geolocation) {
+        if (gpsLabel) gpsLabel.innerText = 'GPS Unsupported';
+        return;
+      }
+
+      navigator.geolocation.getCurrentPosition(
+        async (position) => {
+          const lat = position.coords.latitude;
+          const lon = position.coords.longitude;
+
+          try {
+            const response = await fetch('/api/worker/update-location', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ lat: lat, lon: lon })
             });
-        }
+            const data = await response.json();
+            console.log('Location synced:', data);
 
-        function updateJobStatus(newStatus) {
-            fetch('/api/worker/update-status', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ status: newStatus })
-            })
-            .then(res => res.json())
-            .then(data => {
-                if (data.status === 'success') {
-                    window.location.reload();
-                }
-            });
-        }
-    </script>
-    <script>
-  // Automatically track and push worker's location from their mobile browser
-  if (navigator.geolocation) {
-      navigator.geolocation.watchPosition(
-          (position) => {
-              const lat = position.coords.latitude;
-              const lon = position.coords.longitude;
-
-              // Send update to the Flask backend route we created
-              fetch('/api/worker/update-location', {
-                  method: 'POST',
-                  headers: {
-                      'Content-Type': 'application/json'
-                  },
-                  body: JSON.stringify({ lat: lat, lon: lon })
-              })
-              .then(res => res.json())
-              .then(data => console.log("Location synced:", data))
-              .catch(err => console.error("Location sync failed:", err));
-          },
-          (error) => {
-              console.warn("GPS tracking error or permission denied:", error.message);
-          },
-          {
-              enableHighAccuracy: true,
-              maximumAge: 5000,     // Update cache age
-              timeout: 10000        // Timeout limit
+            if (response.ok && gpsLabel) {
+              gpsLabel.innerText = 'Active GPS Locked';
+              if (gpsDot) gpsDot.style.background = '#10b981';
+            }
+          } catch (err) {
+            console.error('Location sync error:', err);
           }
+        },
+        (err) => {
+          console.warn('GPS permission or lock warning:', err.message);
+          if (gpsLabel) gpsLabel.innerText = 'Active Session';
+        },
+        {
+          enableHighAccuracy: true,
+          timeout: 10000,
+          maximumAge: 0
+        }
       );
-  } else {
-      console.warn("Geolocation is not supported by this browser.");
-  }
-</script>
+    }
+
+    // 2. Accept Customer Task
+    async function acceptTask(taskId, btnElement) {
+      btnElement.disabled = true;
+      btnElement.innerText = 'Accepting...';
+
+      try {
+        const response = await fetch(`/api/worker/accept-task/${taskId}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' }
+        });
+        const data = await response.json();
+
+        if (response.ok && data.status === 'success') {
+          window.location.href = data.redirect || '/worker/dashboard';
+        } else {
+          alert(data.message || 'Could not accept task.');
+          btnElement.disabled = false;
+          btnElement.innerText = 'Accept Job';
+        }
+      } catch (err) {
+        console.error('Error accepting task:', err);
+        alert('Network error while accepting task.');
+        btnElement.disabled = false;
+        btnElement.innerText = 'Accept Job';
+      }
+    }
+
+    // 3. Update Active Job Status (Arrived / Completed)
+    async function updateJobStatus(newStatus) {
+      try {
+        const response = await fetch('/api/worker/update-status', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: newStatus })
+        });
+        const data = await response.json();
+
+        if (response.ok && data.status === 'success') {
+          const statusEl = document.getElementById('current-status-text');
+          if (statusEl) statusEl.innerText = data.current_status;
+          if (newStatus.toLowerCase().includes('complete')) {
+            window.location.reload();
+          }
+        }
+      } catch (err) {
+        console.error('Status update failed:', err);
+      }
+    }
+
+    // Run GPS sync on load and refresh every 30 seconds
+    document.addEventListener('DOMContentLoaded', () => {
+      syncWorkerLocation();
+      setInterval(syncWorkerLocation, 30000);
+    });
+  </script>
 </body>
 </html>

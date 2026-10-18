@@ -32,6 +32,32 @@ function getUserLocation() {
 // Run on page load
 window.onload = getUserLocation;
 </script>
+<script>
+function getUserLocation() {
+    if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+            (position) => {
+                const lat = position.coords.latitude;
+                const lon = position.coords.longitude;
+                
+                console.log("User Lat/Lon:", lat, lon);
+                
+                // Safe element assignment with null checks
+                const latInput = document.getElementById("lat_input");
+                const lonInput = document.getElementById("lon_input");
+                
+                if (latInput) latInput.value = lat;
+                if (lonInput) lonInput.value = lon;
+            },
+            (error) => {
+                console.warn("Geolocation permission denied or unavailable:", error.message);
+            }
+        );
+    }
+}
+// Run on page load
+window.onload = getUserLocation;
+</script>
 <section class="analysis-card">
   <div class="spark">✦</div>
   <div>

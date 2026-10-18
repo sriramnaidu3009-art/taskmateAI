@@ -77,7 +77,8 @@ async function sendPrompt() {
     // 4. Remove typing indicator once response arrives
     removeTypingIndicator();
 
-    if (response.ok) {
+    // Handle both success and backend error JSON structures (data.response or data.error)
+    if (data.response) {
       appendMessage('ai', data.response);
     } else {
       appendMessage('ai', `Error: ${data.error || 'Failed to get response.'}`);
