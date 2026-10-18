@@ -101,6 +101,9 @@ RAZORPAY_KEY_ID = os.getenv("RAZORPAY_KEY_ID", "rzp_test_TjmYlCGss5BpcP")
 RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET", "aSDlOi1qJYvrtMq5HQgjxoCJ")
 razorpay_client = razorpay.Client(auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET))
 
+# Active task statuses (before final completion)
+ACTIVE_TASK_STATUSES = ("accepted", "Worker On The Way", "Arrived at Location")
+
 
 # --- Database Models ---
 class User(db.Model, UserMixin):
@@ -283,6 +286,33 @@ KEYWORDS = {
 
 
 # --- Helper Functions ---
+def build_worker_dict(db_worker: User, rate: float = 450.0, distance: float = 1.2) -> dict:
+    """Formats a database User object into a complete frontend worker dictionary."""
+    name_str = (db_worker.name or "Verified Partner").strip()
+    initials = "".join(p[0].upper() for p in name_str.split()[:2]) or "VP"
+    raw_skills = [
+        s.strip().lower()
+        for s in re.split(r"[,&/]+", db_worker.skills or "general service")
+        if s.strip()
+    ]
+    return {
+        "id": db_worker.id + 1000,
+        "db_id": db_worker.id,
+        "name": name_str,
+        "initials": initials,
+        "role": db_worker.skills or "Verified Service Partner",
+        "skills": raw_skills,
+        "rating": 4.9,
+        "jobs": 15,
+        "distance": distance,
+        "rate": int(rate or 450),
+        "available": True,
+        "color": "#0d9488",
+        "lat": db_worker.lat,
+        "lon": db_worker.lon,
+    }
+
+
 def check_user_password(stored_password: str, provided_password: str) -> bool:
     """Safely verifies hashed passwords and falls back gracefully for legacy plaintext accounts."""
     if not stored_password or not provided_password:
@@ -419,7 +449,7 @@ def analyze_task(title: str, description: str) -> dict:
     if client:
         try:
             response = client.chat.completions.create(
-                model="llama-3.1-8b-instant",
+                model="openai/gpt-oss-120b",
                 messages=[
                     {"role": "system", "content": "You are a JSON-only response generator for task analysis."},
                     {"role": "user", "content": prompt},
@@ -468,35 +498,10 @@ def ranked_workers(analysis: dict, task_lat=None, task_lon=None) -> list[dict]:
     try:
         db_workers = User.query.filter_by(role="worker").all()
         for u in db_workers:
-            name_str = (u.name or "Verified Partner").strip()
-            initials = "".join(part[0].upper() for part in name_str.split()[:2]) or "VP"
-            raw_skills = [
-                s.strip().lower()
-                for s in re.split(r"[,&/]+", u.skills or "general service")
-                if s.strip()
-            ]
             dist = 1.2
             if task_lat and task_lon and u.lat is not None and u.lon is not None:
                 dist = calculate_distance(task_lat, task_lon, u.lat, u.lon)
-
-            candidate_pool.append(
-                {
-                    "id": u.id + 1000,
-                    "db_id": u.id,
-                    "name": name_str,
-                    "initials": initials,
-                    "role": u.skills or "Verified Service Partner",
-                    "skills": raw_skills,
-                    "rating": 4.9,
-                    "jobs": 15,
-                    "distance": dist,
-                    "rate": 450,
-                    "available": True,
-                    "color": "#0d9488",
-                    "lat": u.lat,
-                    "lon": u.lon,
-                }
-            )
+            candidate_pool.append(build_worker_dict(u, rate=450, distance=dist))
     except Exception as e:
         db.session.rollback()
         print(f"[WORKER POOL QUERY NOTICE]: {e}")
@@ -685,6 +690,7 @@ def submit_task():
         )
         db.session.add(new_task)
         db.session.commit()
+        session["task_id"] = new_task.id
     except Exception as e:
         db.session.rollback()
         print(f"[SUBMIT TASK ERROR]: {e}")
@@ -751,6 +757,59 @@ def assign(worker_id: int):
     return redirect(url_for("tracker"))
 
 
+@app.route("/api/task-status-check")
+def api_task_status_check():
+    task_id = session.get("task_id") or session.get("task", {}).get("id")
+    if not task_id:
+        return jsonify({"status": "pending"})
+
+    try:
+        task = db.session.get(Task, int(task_id))
+        if not task:
+            return jsonify({"status": "pending"})
+
+        if task.status != "pending":
+            if task.worker_id:
+                db_worker = db.session.get(User, task.worker_id)
+                if db_worker:
+                    dist = 1.2
+                    if (
+                        task.lat is not None
+                        and task.lon is not None
+                        and db_worker.lat is not None
+                        and db_worker.lon is not None
+                    ):
+                        dist = calculate_distance(task.lat, task.lon, db_worker.lat, db_worker.lon)
+                    session["assigned_worker"] = build_worker_dict(
+                        db_worker, rate=task.budget or 450, distance=dist
+                    )
+
+            if task.status == "completed":
+                current_stage = "Job Completed"
+            elif task.status in ("Worker On The Way", "Arrived at Location"):
+                current_stage = task.status
+            else:
+                current_stage = "Worker On The Way"
+
+            session["status"] = current_stage
+
+            # Redirect directly to the unified /tracker page (which now includes checkout)
+            return jsonify(
+                {
+                    "status": "accepted" if task.status in ACTIVE_TASK_STATUSES else task.status,
+                    "current_stage": current_stage,
+                    "redirect_url": url_for("tracker"),
+                }
+            )
+    except (OperationalError, DBAPIError) as e:
+        db.session.rollback()
+        print(f"[STATUS CHECK DB RECONNECT]: {e}")
+    except Exception as e:
+        db.session.rollback()
+        print(f"[STATUS CHECK ERROR]: {e}")
+
+    return jsonify({"status": "pending"})
+
 @app.route("/api/worker/accept-task/<int:task_id>", methods=["POST"])
 def worker_accept_task(task_id: int):
     user_key = session.get("user")
@@ -772,6 +831,7 @@ def worker_accept_task(task_id: int):
         task.status = "accepted"
         task.worker_id = user_obj.id
         db.session.commit()
+        session["status"] = "Worker On The Way"
 
         return jsonify(
             {
@@ -793,20 +853,19 @@ def worker_update_status():
         return jsonify({"status": "error", "message": "Unauthorized"}), 401
 
     data = request.get_json() or {}
-    new_status = data.get("status")
+    new_status = str(data.get("status", "")).strip()
     if not new_status:
         return jsonify({"status": "error", "message": "Invalid status payload"}), 400
 
     session["status"] = new_status
 
-    # Persist status update in PostgreSQL so customer's /tracker view stays synced
     user_obj = safe_user_query(user_key, role_filter="worker")
     if user_obj:
         try:
             active_task = (
                 Task.query.filter(
                     Task.worker_id == user_obj.id,
-                    Task.status != "completed",
+                    Task.status.in_(ACTIVE_TASK_STATUSES),
                 )
                 .order_by(Task.created_at.desc())
                 .first()
@@ -815,7 +874,7 @@ def worker_update_status():
                 if "complete" in new_status.lower():
                     active_task.status = "completed"
                 else:
-                    active_task.status = "accepted"
+                    active_task.status = new_status[:40]
                 db.session.commit()
         except Exception as e:
             db.session.rollback()
@@ -829,10 +888,13 @@ def tracker():
     task = session.get(
         "task",
         {
+            "id": 1,
             "title": "Fix Ceiling Fan",
             "description": "Fan is making noise and stopped spinning.",
             "location": "Meerpet, Hyderabad",
             "budget": "450",
+            "lat": 17.3297,
+            "lon": 78.5276,
         },
     )
     worker = session.get("assigned_worker", WORKERS[0])
@@ -841,47 +903,91 @@ def tracker():
         session["status"] = request.form.get("status", session.get("status", "Worker On The Way"))
 
     status = session.get("status", "Worker On The Way")
+    task_id = session.get("task_id") or task.get("id", 1)
 
-    # Sync live status & assigned worker from database if a real worker accepted the task
-    task_id = session.get("task_id") or task.get("id")
+    try:
+        base_price = float(task.get("budget") or worker.get("rate") or 450.0)
+    except (ValueError, TypeError):
+        base_price = 450.0
+
+    # Sync live task details, coordinates, budget, and worker info from PostgreSQL
     if task_id:
         try:
             db_task = db.session.get(Task, int(task_id))
-            if db_task and db_task.worker_id:
-                db_worker = db.session.get(User, db_task.worker_id)
-                if db_worker:
-                    name_str = db_worker.name or "Verified Partner"
-                    initials = "".join(p[0].upper() for p in name_str.split()[:2]) or "VP"
-                    worker = {
-                        "id": db_worker.id + 1000,
-                        "db_id": db_worker.id,
-                        "name": name_str,
-                        "initials": initials,
-                        "role": db_worker.skills or "Verified Service Partner",
-                        "rating": 4.9,
-                        "jobs": 15,
-                        "distance": 1.2,
-                        "rate": int(db_task.budget or 450),
-                        "color": "#0d9488",
-                        "lat": db_worker.lat,
-                        "lon": db_worker.lon,
-                    }
-                    session["assigned_worker"] = worker
+            if db_task:
+                task["id"] = db_task.id
+                task["title"] = db_task.title or task.get("title", "Service Request")
+                task["description"] = db_task.description or task.get("description", "")
+                task["location"] = db_task.location or task.get("location", "Exact GPS Location")
+
+                if db_task.budget:
+                    base_price = float(db_task.budget)
+                    task["budget"] = str(int(base_price))
+
+                if db_task.lat is not None and db_task.lon is not None:
+                    task["lat"] = db_task.lat
+                    task["lon"] = db_task.lon
+
+                if db_task.worker_id:
+                    db_worker = db.session.get(User, db_task.worker_id)
+                    if db_worker:
+                        dist = 1.2
+                        if (
+                            db_task.lat is not None
+                            and db_task.lon is not None
+                            and db_worker.lat is not None
+                            and db_worker.lon is not None
+                        ):
+                            dist = calculate_distance(
+                                db_task.lat, db_task.lon, db_worker.lat, db_worker.lon
+                            )
+                        worker = build_worker_dict(
+                            db_worker, rate=base_price, distance=dist
+                        )
+                        session["assigned_worker"] = worker
+
                 if db_task.status == "completed":
                     status = "Job Completed"
+                elif db_task.status in ("Worker On The Way", "Arrived at Location"):
+                    status = db_task.status
+                elif db_task.status == "accepted":
+                    status = "Worker On The Way"
+
+                session["task"] = task
+                session["status"] = status
         except Exception as e:
             db.session.rollback()
             print(f"[TRACKER DB SYNC NOTICE]: {e}")
 
+    # Generate Razorpay Order & Payment Breakdown directly for the Tracker view
+    pricing = calculate_payment_breakdown(base_price)
+    order_data = {
+        "amount": pricing["total_amount_paisa"],
+        "currency": "INR",
+        "receipt": f"task_receipt_{task_id}",
+        "payment_capture": 1,
+    }
+
+    try:
+        razorpay_order = razorpay_client.order.create(data=order_data)
+        order_id = razorpay_order["id"]
+    except Exception as e:
+        print(f"[RAZORPAY ERROR] {e}")
+        order_id = "mock_order_id_for_testing"
+
     return render_template(
         "tracker.html",
         task=task,
+        task_id=task_id,
         worker=worker,
         status=status,
+        pricing=pricing,
+        order_id=order_id,
         razorpay_key=RAZORPAY_KEY_ID,
+        razorpay_key_id=RAZORPAY_KEY_ID,
     )
 
-
+    
 @app.route("/api/create-order", methods=["POST"])
 def create_payment_order():
     data = request.get_json() or {}
@@ -925,7 +1031,21 @@ def create_payment_order():
 @app.route("/create-checkout/<int:task_id>", methods=["GET", "POST"])
 def create_checkout(task_id):
     assigned_worker = session.get("assigned_worker", {})
-    base_price = float(assigned_worker.get("rate", 500.0))
+    base_price = float(assigned_worker.get("rate", 450.0))
+
+    try:
+        db_task = db.session.get(Task, int(task_id))
+        if db_task:
+            if db_task.budget:
+                base_price = float(db_task.budget)
+            if db_task.worker_id and not assigned_worker.get("db_id"):
+                db_worker = db.session.get(User, db_task.worker_id)
+                if db_worker:
+                    assigned_worker = build_worker_dict(db_worker, rate=base_price)
+                    session["assigned_worker"] = assigned_worker
+    except Exception as e:
+        db.session.rollback()
+        print(f"[CHECKOUT TASK FETCH NOTICE]: {e}")
 
     pricing = calculate_payment_breakdown(base_price)
 
@@ -949,6 +1069,7 @@ def create_checkout(task_id):
         order_id=order_id,
         razorpay_key_id=RAZORPAY_KEY_ID,
         task_id=task_id,
+        worker=assigned_worker,
     )
 
 
@@ -959,12 +1080,14 @@ def verify_payment():
     task_id = data.get("task_id") or session.get("task_id", 1)
 
     assigned_worker = session.get("assigned_worker", {})
-    base_amount = float(assigned_worker.get("rate", 500))
+    base_amount = float(assigned_worker.get("rate", 450.0))
 
     if task_id:
         try:
             db_task = db.session.get(Task, int(task_id))
             if db_task:
+                if db_task.budget:
+                    base_amount = float(db_task.budget)
                 db_task.status = "completed"
                 db.session.commit()
         except Exception as e:
@@ -1082,7 +1205,7 @@ def chat():
 
         try:
             response = client.chat.completions.create(
-                model="llama-3.1-8b-instant",
+                model="openai/gpt-oss-120b",
                 messages=[
                     {"role": "system", "content": system_instructions},
                     {"role": "user", "content": prompt},
@@ -1340,7 +1463,6 @@ def worker_dashboard():
 
     try:
         if user_obj and user_obj.skills:
-            # Extract clean primary skill token (e.g. "electrical" from "Electrical & Appliance Repair")
             skill_tokens = [
                 tok.lower()
                 for tok in re.split(r"[,&/\s]+", user_obj.skills)
@@ -1364,7 +1486,6 @@ def worker_dashboard():
                 .all()
             )
 
-        # Attach live distance from worker to each customer task & sort nearest first
         if user_obj and user_obj.lat is not None and user_obj.lon is not None:
             for t in pending_tasks:
                 if t.lat is not None and t.lon is not None:
@@ -1375,7 +1496,10 @@ def worker_dashboard():
 
         if user_obj:
             active_job = (
-                Task.query.filter_by(worker_id=user_obj.id, status="accepted")
+                Task.query.filter(
+                    Task.worker_id == user_obj.id,
+                    Task.status.in_(ACTIVE_TASK_STATUSES),
+                )
                 .order_by(Task.created_at.desc())
                 .first()
             )
@@ -1383,7 +1507,12 @@ def worker_dashboard():
         db.session.rollback()
         print(f"[DASHBOARD TASK QUERY ERROR]: {e}")
 
-    current_status = session.get("status", "Worker On The Way") if active_job else "Looking for tasks"
+    if active_job:
+        current_status = (
+            "Worker On The Way" if active_job.status == "accepted" else active_job.status
+        )
+    else:
+        current_status = "Looking for tasks"
 
     return render_template(
         "worker_dashboard.html",

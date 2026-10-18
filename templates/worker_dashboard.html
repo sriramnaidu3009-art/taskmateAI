@@ -19,7 +19,6 @@
       --text: #1e293b;
       --muted: #64748b;
       --border: #e2e8f0;
-      --danger: #ef4444;
       --radius: 16px;
     }
 
@@ -37,7 +36,6 @@
       min-height: 100vh;
     }
 
-    /* --- Top Navigation Bar --- */
     .topbar {
       background: var(--dark);
       color: #fff;
@@ -113,7 +111,6 @@
       background: rgba(248, 113, 113, 0.12);
     }
 
-    /* --- Main Container & Grid --- */
     .container {
       max-width: 1120px;
       margin: 2rem auto;
@@ -131,7 +128,6 @@
       font-weight: 500;
     }
 
-    /* --- Worker Profile Card --- */
     .profile-card {
       background: var(--surface);
       border: 1px solid var(--border);
@@ -139,15 +135,6 @@
       padding: 1.5rem 1.75rem;
       margin-bottom: 1.75rem;
       box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
-      display: flex;
-      flex-wrap: wrap;
-      justify-content: space-between;
-      align-items: flex-start;
-      gap: 1.25rem;
-    }
-
-    .profile-main {
-      flex: 1 1 320px;
     }
 
     .profile-header {
@@ -196,7 +183,6 @@
       color: var(--text);
     }
 
-    /* --- Dashboard Two-Column Layout --- */
     .dashboard-grid {
       display: grid;
       grid-template-columns: 360px 1fr;
@@ -213,7 +199,6 @@
       }
     }
 
-    /* --- Active Job Card (Left Column) --- */
     .active-card {
       background: var(--dark-card);
       color: #fff;
@@ -341,7 +326,6 @@
       margin-bottom: 0.35rem;
     }
 
-    /* --- Nearby Requests Feed (Right Column) --- */
     .feed-header {
       margin-bottom: 1rem;
       display: flex;
@@ -477,7 +461,6 @@
 </head>
 <body>
 
-  <!-- Top Navigation -->
   <header class="topbar">
     <div class="brand-group">
       <a href="{{ url_for('worker_dashboard') }}" class="brand">✦ Taskmate Pro</a>
@@ -493,7 +476,6 @@
   </header>
 
   <main class="container">
-    <!-- Flash Messages -->
     {% with messages = get_flashed_messages(with_categories=true) %}
       {% if messages %}
         {% for category, message in messages %}
@@ -502,7 +484,6 @@
       {% endif %}
     {% endwith %}
 
-    <!-- Worker Profile Overview -->
     <section class="profile-card">
       <div class="profile-main">
         <div class="profile-header">
@@ -518,10 +499,8 @@
       </div>
     </section>
 
-    <!-- Main Dashboard Content Grid -->
     <div class="dashboard-grid">
 
-      <!-- Left Column: Active Job Panel -->
       <aside>
         {% if active_job %}
           <div class="active-card">
@@ -537,7 +516,6 @@
               <div class="payout-amount">₹{{ active_job.budget }}</div>
             </div>
 
-            <!-- Google Maps Universal Turn-by-Turn Navigation Link -->
             {% if active_job.lat and active_job.lon %}
               <a href="https://www.google.com/maps/dir/?api=1&destination={{ active_job.lat }},{{ active_job.lon }}&travelmode=driving"
                  target="_blank"
@@ -571,7 +549,6 @@
         {% endif %}
       </aside>
 
-      <!-- Right Column: Available Nearby Customer Requests -->
       <section>
         <div class="feed-header">
           <div>
@@ -618,9 +595,7 @@
     </div>
   </main>
 
-  <!-- Worker GPS Sync & Task Actions Script -->
   <script>
-    // 1. High-Accuracy Worker GPS Sync
     function syncWorkerLocation() {
       const gpsLabel = document.getElementById('gps-label');
       const gpsDot = document.getElementById('gps-dot');
@@ -653,7 +628,7 @@
           }
         },
         (err) => {
-          console.warn('GPS permission or lock warning:', err.message);
+          console.warn('GPS permission warning:', err.message);
           if (gpsLabel) gpsLabel.innerText = 'Active Session';
         },
         {
@@ -664,7 +639,6 @@
       );
     }
 
-    // 2. Accept Customer Task
     async function acceptTask(taskId, btnElement) {
       btnElement.disabled = true;
       btnElement.innerText = 'Accepting...';
@@ -691,7 +665,6 @@
       }
     }
 
-    // 3. Update Active Job Status (Arrived / Completed)
     async function updateJobStatus(newStatus) {
       try {
         const response = await fetch('/api/worker/update-status', {
@@ -713,7 +686,6 @@
       }
     }
 
-    // Run GPS sync on load and refresh every 30 seconds
     document.addEventListener('DOMContentLoaded', () => {
       syncWorkerLocation();
       setInterval(syncWorkerLocation, 30000);

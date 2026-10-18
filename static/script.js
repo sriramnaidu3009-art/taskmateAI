@@ -1,19 +1,22 @@
-// Helper to append a styled message bubble to the chat container
+// Helper to safely append a styled message bubble to the chat container
 function appendMessage(sender, text) {
   const chatBox = document.getElementById('chat-box');
+  if (!chatBox) return;
+
   const row = document.createElement('div');
   row.classList.add('message-row', sender);
 
   if (sender === 'ai') {
-    row.innerHTML = `
-      <div class="ai-avatar">✨</div>
-      <div class="bubble">${text}</div>
-    `;
-  } else {
-    row.innerHTML = `
-      <div class="bubble">${text}</div>
-    `;
+    const avatar = document.createElement('div');
+    avatar.className = 'ai-avatar';
+    avatar.textContent = '✨';
+    row.appendChild(avatar);
   }
+
+  const bubble = document.createElement('div');
+  bubble.className = 'bubble';
+  bubble.textContent = text; // Safely escapes HTML/special characters
+  row.appendChild(bubble);
 
   chatBox.appendChild(row);
   chatBox.scrollTop = chatBox.scrollHeight;
@@ -22,6 +25,11 @@ function appendMessage(sender, text) {
 // Helper to display animated typing dots while waiting for the backend
 function showTypingIndicator() {
   const chatBox = document.getElementById('chat-box');
+  if (!chatBox) return;
+
+  // Remove any existing indicator first to avoid duplicates
+  removeTypingIndicator();
+
   const typingRow = document.createElement('div');
   typingRow.id = 'typing-indicator';
   typingRow.classList.add('message-row', 'ai');
@@ -48,8 +56,9 @@ function removeTypingIndicator() {
 async function sendPrompt() {
   const inputField = document.getElementById('user-input');
   const sendBtn = document.getElementById('send-btn');
-  const promptText = inputField.value.trim();
+  if (!inputField || !sendBtn) return;
 
+  const promptText = inputField.value.trim();
   if (!promptText) {
     return;
   }
@@ -89,17 +98,25 @@ async function sendPrompt() {
     appendMessage('ai', 'Error connecting to the server. Please check your backend.');
   } finally {
     sendBtn.disabled = false;
+    inputField.focus();
   }
 }
 
-// Listen for "Enter" key press on the input field
+// Listen for "Enter" key press and Send button clicks
 document.addEventListener('DOMContentLoaded', () => {
   const inputField = document.getElementById('user-input');
+  const sendBtn = document.getElementById('send-btn');
+
   if (inputField) {
-    inputField.addEventListener('keypress', function (e) {
+    inputField.addEventListener('keydown', function (e) {
       if (e.key === 'Enter') {
+        e.preventDefault();
         sendPrompt();
       }
     });
+  }
+
+  if (sendBtn && !sendBtn.getAttribute('onclick')) {
+    sendBtn.addEventListener('click', sendPrompt);
   }
 });

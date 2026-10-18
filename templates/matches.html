@@ -8,112 +8,76 @@
   <h1>Here’s who can help.</h1>
   <p>{{ task.title }}{% if task.location %} · {{ task.location }}{% endif %}</p>
 </div>
+
+<!-- Real-time polling script to auto-redirect customer to Checkout when a worker accepts -->
 <script>
-function getUserLocation() {
-    if (navigator.geolocation) {
-        navigator.geolocation.getCurrentPosition(
-            (position) => {
-                const lat = position.coords.latitude;
-                const lon = position.coords.longitude;
-                
-                // Send these coordinates to your Flask backend via an AJAX call or store in a hidden form field
-                console.log("User Lat/Lon:", lat, lon);
-                
-                // Optional: Reverse geocode using a free API or send directly to backend
-                document.getElementById("lat_input").value = lat;
-                document.getElementById("lon_input").value = lon;
-            },
-            (error) => {
-                console.warn("Geolocation permission denied or unavailable:", error.message);
+function checkTaskStatus() {
+    fetch('/api/task-status-check')
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'accepted' || data.status === 'completed') {
+                window.location.href = data.redirect_url || '/tracker';
             }
-        );
-    }
+        })
+        .catch(err => console.error('Status check error:', err));
 }
-// Run on page load
-window.onload = getUserLocation;
+setInterval(checkTaskStatus, 3000);
 </script>
-<script>
-function getUserLocation() {
-    if (navigator.geolocation) {
-        navigator.geolocation.getCurrentPosition(
-            (position) => {
-                const lat = position.coords.latitude;
-                const lon = position.coords.longitude;
-                
-                console.log("User Lat/Lon:", lat, lon);
-                
-                // Safe element assignment with null checks
-                const latInput = document.getElementById("lat_input");
-                const lonInput = document.getElementById("lon_input");
-                
-                if (latInput) latInput.value = lat;
-                if (lonInput) lonInput.value = lon;
-            },
-            (error) => {
-                console.warn("Geolocation permission denied or unavailable:", error.message);
-            }
-        );
-    }
-}
-// Run on page load
-window.onload = getUserLocation;
-</script>
-<section class="analysis-card">
-  <div class="spark">✦</div>
+
+<section class="analysis-card" style="background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 16px; padding: 2rem; margin-bottom: 2rem; text-align: center;">
+  <div class="spark" style="font-size: 2rem; margin-bottom: 0.5rem;">✦</div>
   <div>
-    <span class="label">TASKMATE AI INSIGHT</span>
-    <h2>{{ analysis.summary }}</h2>
-    <div class="chips">
+    <span class="label" style="color: #047857; font-weight: 700;">TASKMATE AI INSIGHT</span>
+    <h2 style="color: #065f46; font-size: 1.25rem; margin: 0.5rem 0;">Broadcasting to nearby workers...</h2>
+    <p style="color: #047857; font-size: 0.92rem; max-width: 600px; margin: 0 auto;">{{ analysis.summary }}</p>
+    <div class="chips" style="margin-top: 1rem;">
       {% for skill in analysis.skills %}
-        <span>{{ skill }}</span>
+        <span style="background: #d1fae5; color: #065f46; padding: 0.25rem 0.75rem; border-radius: 999px; font-size: 0.8rem; font-weight: 600; display: inline-block; margin: 2px;">{{ skill }}</span>
       {% endfor %}
     </div>
   </div>
-  <div class="facts">
+  <div class="facts" style="margin-top: 1.5rem; display: flex; justify-content: center; gap: 2rem; border-top: 1px solid #a7f3d0; padding-top: 1rem;">
     <div>
       <b>₹{{ analysis.price_min }}–{{ analysis.price_max }}</b>
-      <small>fair price range</small>
+      <small style="display: block; color: #047857;">fair price range</small>
     </div>
     <div>
       <b>{{ analysis.duration }}</b>
-      <small>estimated time</small>
+      <small style="display: block; color: #047857;">estimated time</small>
     </div>
     <div>
       <b>{{ analysis.urgency }}</b>
-      <small>urgency</small>
+      <small style="display: block; color: #047857;">urgency</small>
     </div>
   </div>
 </section>
 
 <section class="content-grid">
   <div>
-    <h2>Best matches <span class="muted">ranked for you</span></h2>
-    {% for worker in workers %}
-      <article class="worker-card">
-        <div class="avatar" style="background:{{ worker.color }}">{{ worker.initials }}</div>
-        <div class="worker-main">
-          <div class="worker-title">
+    <h2>Top Ranked Match <span class="muted">sorted for you</span></h2>
+    {% if workers %}
+      {% set top_worker = workers[0] %}
+      <article class="worker-card" style="display: flex; align-items: center; background: #fff; border: 1px solid #e2e8f0; border-radius: 16px; padding: 1.5rem; gap: 1.25rem;">
+        <div class="avatar" style="background:{{ top_worker.color }}; width: 55px; height: 55px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: bold; font-size: 1.1rem;">{{ top_worker.initials }}</div>
+        <div class="worker-main" style="flex: 1;">
+          <div class="worker-title" style="display: flex; justify-content: space-between; align-items: flex-start;">
             <div>
-              <h3>{{ worker.name }}</h3>
-              <p>{{ worker.role }}</p>
+              <h3 style="font-size: 1.15rem; font-weight: 700; color: #0f172a; margin-bottom: 0.2rem;">{{ top_worker.name }}</h3>
+              <p style="color: #64748b; font-size: 0.88rem;">{{ top_worker.role }}</p>
             </div>
-            <strong>{{ worker.score }}% match</strong>
+            <strong style="color: #10b981; background: #ecfdf5; padding: 0.25rem 0.6rem; border-radius: 999px; font-size: 0.85rem;">{{ top_worker.score }}% match</strong>
           </div>
-          <div class="worker-meta">
-            <span>★ {{ worker.rating }} ({{ worker.jobs }} jobs)</span>
-            <span>⌖ {{ worker.distance }} km away</span>
-            <span>₹{{ worker.rate }}/hr</span>
+          <div class="worker-meta" style="display: flex; gap: 1rem; margin-top: 0.75rem; font-size: 0.82rem; color: #64748b;">
+            <span>★ {{ top_worker.rating }} ({{ top_worker.jobs }} jobs)</span>
+            <span>⌖ {{ top_worker.distance }} km away</span>
+            <span>₹{{ top_worker.rate }}/hr</span>
           </div>
-          <p class="reason">
-            Matches {{ worker.skill_matches | default(1) }}/{{ analysis.skills|length }} needed skills ·
-            {% if worker.available %}Available today{% else %}Available tomorrow{% endif %}
+          <p class="reason" style="margin-top: 0.6rem; font-size: 0.82rem; color: #059669; font-weight: 500;">
+            ✓ Request dispatched — waiting for worker confirmation...
           </p>
         </div>
-        <form method="POST" action="{{ url_for('assign', worker_id=worker.id) }}">
-          <button type="submit" class="button outline">Choose</button>
-        </form>
       </article>
-    {% endfor %}
+    {% endif %}
   </div>
 
   <aside class="plan">

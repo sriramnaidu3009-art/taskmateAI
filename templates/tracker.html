@@ -3,18 +3,18 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Task Tracker - Taskmate AI</title>
+    <title>Task Tracker & Checkout - Taskmate AI</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
     <!-- MapLibre GL CSS for High-Performance Vector Maps -->
-    <link href='https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css' rel='stylesheet' />
+    <link href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css" rel="stylesheet" />
 </head>
 <body class="bg-stone-50 text-stone-800 font-sans min-h-screen flex flex-col">
 
-    {% set base_amount = worker.rate|float %}
-    {% set platform_fee = (base_amount * 0.05)|round(2) %}
-    {% set gst_on_fee = (platform_fee * 0.18)|round(2) %}
-    {% set total_amount = (base_amount + platform_fee + gst_on_fee)|round(2) %}
+    {% set base_amount = (pricing.base_amount if pricing is defined else (task.budget or worker.rate or 450))|float %}
+    {% set platform_fee = (pricing.platform_fee if pricing is defined else (base_amount * 0.05))|round(2) %}
+    {% set gst_on_fee = (pricing.gst_on_fee if pricing is defined else (platform_fee * 0.18))|round(2) %}
+    {% set total_amount = (pricing.total_amount if pricing is defined else (base_amount + platform_fee + gst_on_fee))|round(2) %}
 
     <!-- Header / Navbar -->
     <header class="bg-white border-b border-stone-200 py-4 px-6 md:px-12 flex justify-between items-center shadow-sm">
@@ -23,9 +23,9 @@
         </a>
         <div class="flex items-center gap-4 text-sm">
             <a href="/" class="text-stone-600 hover:text-teal-800 transition">Home</a>
-            {% if current_user.is_authenticated %}
+            {% if session.get('user') %}
                 <span class="text-stone-400">|</span>
-                <span class="text-stone-600 font-medium">{{ current_user.email }}</span>
+                <span class="text-stone-600 font-medium">{{ session.get('user') }}</span>
                 <a href="/logout" class="text-rose-600 hover:text-rose-800 font-medium transition">Logout</a>
             {% endif %}
         </div>
@@ -39,24 +39,24 @@
             <div>
                 <span class="text-xs uppercase tracking-wider text-stone-400 font-semibold">Current Status</span>
                 <h1 class="text-3xl font-extrabold text-stone-900 mt-1">
-                    Task Status: <span class="text-teal-700">{{ status }}</span>
+                    Task Status: <span id="status-heading" class="text-teal-700">{{ status }}</span>
                 </h1>
             </div>
-            <span class="inline-flex items-center px-4 py-1.5 rounded-full text-sm font-semibold bg-teal-50 text-teal-700 border border-teal-200">
+            <span id="status-pill" class="inline-flex items-center px-4 py-1.5 rounded-full text-sm font-semibold bg-teal-50 text-teal-700 border border-teal-200">
                 ● {{ status }}
             </span>
         </div>
 
         <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
 
-            <!-- Assigned Worker Card -->
+            <!-- Assigned Worker & Integrated Checkout Card -->
             <div class="bg-white border border-stone-200 rounded-2xl p-6 shadow-sm flex flex-col justify-between">
                 <div>
                     <span class="text-xs uppercase tracking-wider text-stone-400 font-semibold">Assigned Professional</span>
 
                     <div class="flex items-center gap-4 mt-4">
-                        <div class="w-14 h-14 rounded-full flex items-center justify-center text-white text-xl font-bold shadow" style="background-color: {{ worker.color or '#1d7a68' }};">
-                            {{ worker.initials }}
+                        <div class="w-14 h-14 rounded-full flex items-center justify-center text-white text-xl font-bold shadow shrink-0" style="background-color: {{ worker.color or '#1d7a68' }};">
+                            {{ worker.initials or 'VP' }}
                         </div>
                         <div>
                             <h2 class="text-xl font-bold text-stone-900">{{ worker.name }}</h2>
@@ -67,11 +67,11 @@
                     <div class="mt-6 pt-4 border-t border-stone-100 space-y-2 text-sm">
                         <div class="flex justify-between">
                             <span class="text-stone-500">Service Rate:</span>
-                            <span class="font-bold text-stone-900">₹{{ worker.rate }}</span>
+                            <span class="font-bold text-stone-900">₹{{ '%.0f'|format(base_amount) }}</span>
                         </div>
                         <div class="flex justify-between">
                             <span class="text-stone-500">Rating:</span>
-                            <span class="font-bold text-amber-600">★ {{ worker.rating }}</span>
+                            <span class="font-bold text-amber-600">★ {{ worker.rating or '4.9' }}</span>
                         </div>
                     </div>
                 </div>
@@ -98,7 +98,13 @@
                         </div>
                     </div>
 
-                    <button id="pay-btn" type="button" onclick="payNow()" class="w-full bg-teal-800 hover:bg-teal-900 text-white font-bold py-3.5 px-4 rounded-xl shadow transition flex items-center justify-center gap-2">
+                    <!-- Paid Confirmation Badge -->
+                    <div id="paid-badge" class="{% if status != 'Job Completed' %}hidden{% endif %} w-full bg-emerald-50 border border-emerald-300 text-emerald-800 font-bold py-3.5 px-4 rounded-xl text-center text-sm">
+                        ✓ Payment Verified & Completed
+                    </div>
+
+                    <!-- Pay Now Button -->
+                    <button id="pay-btn" type="button" onclick="payNow()" class="{% if status == 'Job Completed' %}hidden{% endif %} w-full bg-teal-800 hover:bg-teal-900 text-white font-bold py-3.5 px-4 rounded-xl shadow transition flex items-center justify-center gap-2">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
                         <span>Pay ₹{{ '%.2f'|format(total_amount) }} Now</span>
                     </button>
@@ -120,11 +126,11 @@
                     <div class="grid grid-cols-2 gap-4 mt-6 text-sm">
                         <div class="p-3 bg-stone-50 rounded-xl">
                             <span class="text-stone-400 block text-xs">Location</span>
-                            <span class="font-semibold text-stone-800" id="task-location-text">{{ task.location or "Not specified" }}</span>
+                            <span class="font-semibold text-stone-800" id="task-location-text">{{ task.location or "Exact GPS Location" }}</span>
                         </div>
                         <div class="p-3 bg-stone-50 rounded-xl">
                             <span class="text-stone-400 block text-xs">Est. Budget</span>
-                            <span class="font-semibold text-stone-800">₹{{ task.budget or worker.rate }}</span>
+                            <span class="font-semibold text-stone-800">₹{{ '%.0f'|format(base_amount) }}</span>
                         </div>
                     </div>
                 </div>
@@ -156,24 +162,26 @@
         </div>
     </main>
 
-    <!-- MapLibre GL JS & Tracking Logic -->
-    <script src='https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js'></script>
+    <!-- MapLibre GL JS & Live Tracking Logic -->
+    <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
     <script>
-        const taskLocationQuery = "{{ task.get('location', '') }}";
-        const taskLat = parseFloat("{{ task.get('lat', '') }}") || null;
-        const taskLon = parseFloat("{{ task.get('lon', '') }}") || null;
+        const taskLocationQuery = {{ (task.get('location', '') or '')|tojson }};
+        const rawLat = {{ (task.get('lat', '') or '')|tojson }};
+        const rawLon = {{ (task.get('lon', '') or '')|tojson }};
+        const taskLat = parseFloat(rawLat) || null;
+        const taskLon = parseFloat(rawLon) || null;
 
         async function initTrackerMap() {
             let centerLat = 17.3850;
             let centerLon = 78.4867;
 
-            // 1. Use exact GPS coordinates if available from submission
-            if (taskLat && taskLon) {
+            // 1. Use exact GPS coordinates if available from customer submission
+            if (taskLat !== null && taskLon !== null) {
                 centerLat = taskLat;
                 centerLon = taskLon;
-            } 
-            // 2. Otherwise, geocode the text location query using OpenStreetMap Nominatim
-            else if (taskLocationQuery) {
+            }
+            // 2. Otherwise geocode text location if it's a real address (not placeholder text)
+            else if (taskLocationQuery && taskLocationQuery !== "Exact GPS Location") {
                 try {
                     const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(taskLocationQuery)}`);
                     const data = await res.json();
@@ -182,21 +190,20 @@
                         centerLon = parseFloat(data[0].lon);
                     }
                 } catch (e) {
-                    console.error("Geocoding failed, using fallback coordinates:", e);
+                    console.error("Geocoding failed, using default coordinates:", e);
                 }
             }
 
-            // Initialize MapLibre GL Map (Note: MapLibre takes [longitude, latitude])
             const map = new maplibregl.Map({
                 container: 'live-map',
-                style: 'https://tiles.openfreemap.org/styles/liberty', // Free open-source vector tile style
+                style: 'https://tiles.openfreemap.org/styles/liberty',
                 center: [centerLon, centerLat],
                 zoom: 14
             });
 
             map.addControl(new maplibregl.NavigationControl(), 'top-right');
 
-            // User / Service Location Marker element
+            // Customer Location Marker (Orange)
             const userElement = document.createElement('div');
             userElement.style.cssText = 'background-color: #e16d4c; width: 16px; height: 16px; border-radius: 50%; border: 3px solid white; box-shadow: 0 0 5px rgba(0,0,0,0.3);';
 
@@ -207,13 +214,14 @@
 
             let workerMarker = null;
 
-            // Poll backend route for live worker location updates
-            function pollWorkerLocation() {
-                fetch('/api/worker/live-location')
-                    .then(res => res.json())
-                    .then(data => {
+            // Poll backend for both live worker coordinates AND task status updates
+            async function pollLiveUpdates() {
+                try {
+                    const locRes = await fetch('/api/worker/live-location');
+                    if (locRes.ok) {
+                        const data = await locRes.json();
                         if (data.lat && data.lon) {
-                            const workerLngLat = [data.lon, data.lat]; // MapLibre takes [lng, lat]
+                            const workerLngLat = [parseFloat(data.lon), parseFloat(data.lat)];
 
                             if (!workerMarker) {
                                 const workerElement = document.createElement('div');
@@ -226,18 +234,29 @@
                             } else {
                                 workerMarker.setLngLat(workerLngLat);
                             }
-                            
+
                             if (data.distance) {
                                 document.getElementById('distance-text').innerText = `Estimated distance: ${data.distance} km away`;
                             }
                         }
-                    })
-                    .catch(err => console.error("Location sync error:", err));
+                    }
+
+                    // Sync live status changes (e.g., "Arrived at Location" or "Job Completed")
+                    const statusRes = await fetch('/api/task-status-check');
+                    if (statusRes.ok) {
+                        const statusData = await statusRes.json();
+                        if (statusData.current_stage) {
+                            document.getElementById('status-heading').innerText = statusData.current_stage;
+                            document.getElementById('status-pill').innerText = '● ' + statusData.current_stage;
+                        }
+                    }
+                } catch (err) {
+                    console.error("Live sync error:", err);
+                }
             }
 
-            // Initial fetch and poll every 5 seconds
-            pollWorkerLocation();
-            setInterval(pollWorkerLocation, 5000);
+            pollLiveUpdates();
+            setInterval(pollLiveUpdates, 5000);
         }
 
         document.addEventListener("DOMContentLoaded", initTrackerMap);
@@ -247,6 +266,7 @@
     <script>
         const BASE_AMOUNT = {{ base_amount }};
         const TASK_TITLE = {{ (task.title or 'Custom Service')|tojson }};
+        const TASK_ID = {{ (task_id if task_id is defined else task.get('id', 1))|tojson }};
 
         function payNow() {
             const btn = document.getElementById('pay-btn');
@@ -279,13 +299,20 @@
                         fetch('/verify-payment', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify(response)
+                            body: JSON.stringify({
+                                razorpay_payment_id: response.razorpay_payment_id,
+                                razorpay_order_id: response.razorpay_order_id,
+                                razorpay_signature: response.razorpay_signature,
+                                task_id: TASK_ID
+                            })
                         })
                         .then(res => res.json())
                         .then(result => {
                             if (result.status === 'success') {
-                                alert('Payment successful! Your worker is confirmed.');
-                                window.location.reload();
+                                document.getElementById('pay-btn').classList.add('hidden');
+                                document.getElementById('paid-badge').classList.remove('hidden');
+                                document.getElementById('status-heading').innerText = 'Job Completed';
+                                document.getElementById('status-pill').innerText = '● Job Completed';
                             } else {
                                 alert('Payment verification failed.');
                                 resetButton();
@@ -294,7 +321,8 @@
                         .catch(() => { alert('Could not verify payment.'); resetButton(); });
                     },
                     prefill: {
-                        email: "{{ current_user.email if current_user.is_authenticated else '' }}"
+                        contact: "{{ session.get('user', '') if '@' not in (session.get('user', '') or '') else '' }}",
+                        email: "{{ session.get('user', '') if '@' in (session.get('user', '') or '') else '' }}"
                     },
                     modal: { ondismiss: resetButton },
                     theme: { color: "#1d7a68" }
@@ -312,8 +340,10 @@
 
         function resetButton() {
             const btn = document.getElementById('pay-btn');
-            btn.disabled = false;
-            btn.classList.remove('opacity-70');
+            if (btn) {
+                btn.disabled = false;
+                btn.classList.remove('opacity-70');
+            }
         }
     </script>
 </body>

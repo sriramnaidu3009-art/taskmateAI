@@ -29,13 +29,13 @@
             <span class="text-success">₹{{ "%.2f"|format(pricing.total_amount) }}</span>
         </div>
 
-        <button id="rzp-button" class="btn btn-success w-100 btn-lg fw-bold">
+        <button id="rzp-button" class="btn btn-success w-100 btn-lg fw-bold" style="background-color: #10b981; border: none;">
             Pay Now &rarr;
         </button>
     </div>
 </div>
 
-<!-- Razorpay Checkout Script -->
+<!-- Razorpay Checkout Script & Backend Verification -->
 <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
 <script>
 var options = {
@@ -45,12 +45,33 @@ var options = {
     "name": "Taskmate AI",
     "description": "Payment for Task #{{ task_id }}",
     "order_id": "{{ order_id }}",
-    "handler": function (response){
-        alert("Payment Successful! Payment ID: " + response.razorpay_payment_id);
-        window.location.href = "{{ url_for('home') }}";
+    "handler": async function (response){
+        try {
+            // Notify backend of successful payment to update task status & trigger payout
+            const res = await fetch('/verify-payment', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    razorpay_payment_id: response.razorpay_payment_id,
+                    razorpay_order_id: response.razorpay_order_id,
+                    razorpay_signature: response.razorpay_signature,
+                    task_id: "{{ task_id }}"
+                })
+            });
+            const data = await res.json();
+            if (data.status === 'success') {
+                window.location.href = "{{ url_for('tracker') }}";
+            } else {
+                alert("Payment verified, but status sync failed. Redirecting to tracker...");
+                window.location.href = "{{ url_for('tracker') }}";
+            }
+        } catch (err) {
+            console.error("Payment verification error:", err);
+            window.location.href = "{{ url_for('tracker') }}";
+        }
     },
     "theme": {
-        "color": "#125e46"
+        "color": "#10b981"
     }
 };
 var rzp1 = new Razorpay(options);
