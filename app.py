@@ -34,6 +34,7 @@ from sendgrid.helpers.mail import Mail
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError, OperationalError
 from werkzeug.security import check_password_hash, generate_password_hash
+from authlib.integrations.flask_client import OAuth
 
 # 1. Load Environment Variables
 load_dotenv()
@@ -186,6 +187,82 @@ with app.app_context():
 
 
 # --- Flask-Login User Loader ---
+# Initialize Authlib OAuth
+oauth = OAuth(app)
+google = oauth.register(
+    name='google',
+    client_id=os.getenv('GOOGLE_CLIENT_ID'),
+    client_secret=os.getenv('GOOGLE_CLIENT_SECRET'),
+    server_metadata_url='https://accounts.google.com/.well-known/openid-configuration',
+    client_kwargs={
+        'scope': 'openid email profile'
+    }
+)
+@app.route('/login/google')
+def google_login():
+    session["oauth_role"] = "user"
+    redirect_uri = url_for('google_callback', _external=True)
+    return google.authorize_redirect(redirect_uri)
+
+
+@app.route('/worker/login/google')
+def worker_google_login():
+    session["oauth_role"] = "worker"
+    redirect_uri = url_for('google_callback', _external=True)
+    return google.authorize_redirect(redirect_uri)
+
+
+@app.route('/login/google/callback')
+def google_callback():
+    try:
+        token = google.authorize_access_token()
+        user_info = token.get('userinfo')
+        
+        if not user_info:
+            flash("Google authentication failed.", "error")
+            return redirect(url_for('login'))
+
+        email = user_info.get('email')
+        name = user_info.get('name', 'Taskmate User')
+        target_role = session.pop("oauth_role", "user")
+
+        # Check if user already exists in PostgreSQL
+        user = User.query.filter(User.email.ilike(email)).first()
+
+        if not user:
+            # AUTO-REGISTER: Create a new account if they don't exist yet
+            dummy_password = generate_password_hash(os.urandom(24).hex())
+            user = User(
+                name=name,
+                email=email,
+                password=dummy_password,
+                role=target_role,
+                skills="General Service" if target_role == "worker" else None
+            )
+            db.session.add(user)
+            db.session.commit()
+            flash(f"Account created successfully! Welcome, {user.name}.", "success")
+        else:
+            # LOGIN: User already exists
+            if target_role == "worker" and user.role != "worker":
+                user.role = "worker"
+                db.session.commit()
+            flash(f"Welcome back, {user.name}!", "success")
+
+        # Log user into session
+        session["user"] = user.email
+        session["role"] = user.role
+
+        # Redirect to respective dashboard/home
+        if user.role == "worker":
+            return redirect(url_for("worker_dashboard"))
+        return redirect(url_for("home"))
+
+    except Exception as e:
+        db.session.rollback()
+        print(f"[GOOGLE OAUTH ERROR]: {e}")
+        flash("An error occurred during Google authentication.", "error")
+        return redirect(url_for('login'))
 @login_manager.user_loader
 def load_user(user_id):
     try:
@@ -310,6 +387,8 @@ def build_worker_dict(db_worker: User, rate: float = 450.0, distance: float = 1.
         "color": "#0d9488",
         "lat": db_worker.lat,
         "lon": db_worker.lon,
+        "phone": db_worker.phone,
+        "email": db_worker.email,
     }
 
 
@@ -1460,6 +1539,7 @@ def worker_dashboard():
 
     pending_tasks = []
     active_job = None
+    customer_contact_info = None
 
     try:
         if user_obj and user_obj.skills:
@@ -1503,6 +1583,14 @@ def worker_dashboard():
                 .order_by(Task.created_at.desc())
                 .first()
             )
+            if active_job and active_job.customer_id:
+                cust = db.session.get(User, active_job.customer_id)
+                if cust:
+                    customer_contact_info = {
+                        "name": cust.name or "Customer",
+                        "phone": cust.phone or "Not provided",
+                        "email": cust.email or "Not provided",
+                    }
     except Exception as e:
         db.session.rollback()
         print(f"[DASHBOARD TASK QUERY ERROR]: {e}")
@@ -1520,6 +1608,7 @@ def worker_dashboard():
         tasks=pending_tasks,
         active_job=active_job,
         current_status=current_status,
+        customer_contact_info=customer_contact_info,
     )
 
 

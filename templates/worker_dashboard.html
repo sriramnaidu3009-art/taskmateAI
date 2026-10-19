@@ -237,6 +237,24 @@
       gap: 0.35rem;
     }
 
+    .customer-contact-box {
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 12px;
+      padding: 1rem;
+      margin-bottom: 1.25rem;
+      font-size: 0.88rem;
+    }
+
+    .customer-contact-box p {
+      margin-bottom: 0.3rem;
+      color: #cbd5e1;
+    }
+
+    .customer-contact-box strong {
+      color: #ffffff;
+    }
+
     .payout-box {
       background: rgba(255, 255, 255, 0.06);
       border: 1px solid rgba(255, 255, 255, 0.1);
@@ -507,6 +525,16 @@
             <span class="active-pill">● Active Job</span>
             <h2 class="active-title">{{ active_job.title }}</h2>
             <p class="active-location">📍 {{ active_job.location or 'Exact Customer GPS Pin' }}</p>
+
+            <!-- Customer Contact Information Card -->
+            {% if customer_contact %}
+              <div class="customer-contact-box">
+                <p style="color: #34d399; font-weight: 600; margin-bottom: 0.4rem;">👤 Customer Details</p>
+                <p><strong>Name:</strong> {{ customer_contact.name }}</p>
+                <p><strong>Phone:</strong> <a href="tel:{{ customer_contact.phone }}" style="color: #6ee7b7; text-decoration: none;">{{ customer_contact.phone }}</a></p>
+                <p><strong>Email:</strong> {{ customer_contact.email }}</p>
+              </div>
+            {% endif %}
 
             <div class="payout-box">
               <div>
