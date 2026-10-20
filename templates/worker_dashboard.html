@@ -2,92 +2,133 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>Worker Portal · Taskmate Pro</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
     :root {
-      --bg: #f8faf9;
+      --bg: #f8fafc;
       --surface: #ffffff;
       --dark: #0f172a;
       --dark-card: #111827;
       --primary: #10b981;
       --primary-dark: #059669;
-      --primary-soft: #d1fae5;
-      --text: #1e293b;
+      --primary-soft: #ecfdf5;
+      --text: #0f172a;
       --muted: #64748b;
       --border: #e2e8f0;
-      --radius: 16px;
+      --radius-sm: 8px;
+      --radius-md: 12px;
+      --radius-lg: 16px;
+      --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.04);
+      --shadow-card: 0 4px 20px -2px rgba(15, 23, 42, 0.05), 0 1px 3px rgba(0, 0, 0, 0.03);
     }
 
     * {
       box-sizing: border-box;
       margin: 0;
       padding: 0;
+      -webkit-tap-highlight-color: transparent;
     }
 
     body {
-      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       background-color: var(--bg);
       color: var(--text);
       line-height: 1.5;
       min-height: 100vh;
+      display: flex;
+      flex-direction: column;
     }
 
+    /* --- Responsive Top Navigation Bar --- */
     .topbar {
       background: var(--dark);
-      color: #fff;
-      padding: 0.9rem 2rem;
+      color: #ffffff;
+      padding: 0.75rem 1rem;
+      position: sticky;
+      top: 0;
+      z-index: 1000;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);
+    }
+
+    @media (min-width: 768px) {
+      .topbar {
+        padding: 0.85rem 2rem;
+      }
+    }
+
+    .topbar-inner {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      position: sticky;
-      top: 0;
-      z-index: 100;
-      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12);
+      gap: 0.5rem;
+      max-width: 1120px;
+      margin: 0 auto;
+      width: 100%;
     }
 
     .brand-group {
       display: flex;
       align-items: center;
-      gap: 0.85rem;
+      gap: 0.5rem;
+      min-width: 0;
+      flex-shrink: 1;
     }
 
     .brand {
       font-weight: 700;
-      font-size: 1.15rem;
+      font-size: 1.05rem;
       color: #34d399;
-      display: flex;
+      display: inline-flex;
       align-items: center;
-      gap: 0.4rem;
+      gap: 0.35rem;
       text-decoration: none;
+      white-space: nowrap;
+    }
+
+    @media (min-width: 768px) {
+      .brand {
+        font-size: 1.15rem;
+      }
     }
 
     .portal-pill {
       background: rgba(255, 255, 255, 0.1);
       color: #cbd5e1;
-      font-size: 0.75rem;
+      font-size: 0.7rem;
       font-weight: 500;
-      padding: 0.25rem 0.7rem;
+      padding: 0.2rem 0.55rem;
       border-radius: 999px;
       border: 1px solid rgba(255, 255, 255, 0.12);
+      white-space: nowrap;
+      display: none;
+    }
+
+    @media (min-width: 520px) {
+      .portal-pill {
+        display: inline-block;
+      }
     }
 
     .nav-actions {
       display: flex;
       align-items: center;
-      gap: 1.25rem;
-      font-size: 0.85rem;
+      gap: 0.75rem;
+      flex-shrink: 0;
     }
 
     .gps-status {
       display: flex;
       align-items: center;
-      gap: 0.45rem;
+      gap: 0.35rem;
       color: #cbd5e1;
-      font-size: 0.8rem;
+      font-size: 0.75rem;
+      white-space: nowrap;
+      font-weight: 500;
     }
 
     .pulse-dot {
@@ -95,26 +136,40 @@
       height: 8px;
       border-radius: 50%;
       background: var(--primary);
-      box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.2);
+      box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.25);
+      flex-shrink: 0;
     }
 
     .logout-link {
       color: #f87171;
       text-decoration: none;
       font-weight: 600;
-      padding: 0.4rem 0.8rem;
-      border-radius: 8px;
+      font-size: 0.8rem;
+      padding: 0.35rem 0.7rem;
+      border-radius: var(--radius-sm);
+      background: rgba(248, 113, 113, 0.12);
+      white-space: nowrap;
       transition: background 0.15s;
     }
 
     .logout-link:hover {
-      background: rgba(248, 113, 113, 0.12);
+      background: rgba(248, 113, 113, 0.22);
     }
 
+    /* --- Container --- */
     .container {
       max-width: 1120px;
-      margin: 2rem auto;
-      padding: 0 1.25rem;
+      margin: 1.25rem auto 2.5rem;
+      padding: 0 1rem;
+      width: 100%;
+      flex: 1;
+    }
+
+    @media (min-width: 768px) {
+      .container {
+        margin: 2rem auto;
+        padding: 0 1.5rem;
+      }
     }
 
     .flash-banner {
@@ -122,89 +177,125 @@
       border: 1px solid #a7f3d0;
       color: #065f46;
       padding: 0.85rem 1.1rem;
-      border-radius: 12px;
-      margin-bottom: 1.5rem;
-      font-size: 0.9rem;
+      border-radius: var(--radius-md);
+      margin-bottom: 1.25rem;
+      font-size: 0.88rem;
       font-weight: 500;
     }
 
+    /* --- Profile Overview Card --- */
     .profile-card {
       background: var(--surface);
       border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 1.5rem 1.75rem;
-      margin-bottom: 1.75rem;
-      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+      border-radius: var(--radius-lg);
+      padding: 1.25rem;
+      margin-bottom: 1.5rem;
+      box-shadow: var(--shadow-card);
+    }
+
+    @media (min-width: 768px) {
+      .profile-card {
+        padding: 1.6rem 1.75rem;
+      }
     }
 
     .profile-header {
       display: flex;
-      flex-wrap: wrap;
-      align-items: center;
-      gap: 0.75rem;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 0.4rem;
       margin-bottom: 0.5rem;
     }
 
+    @media (min-width: 640px) {
+      .profile-header {
+        flex-direction: row;
+        align-items: center;
+        gap: 0.75rem;
+      }
+    }
+
     .profile-header h1 {
-      font-size: 1.45rem;
+      font-size: 1.35rem;
       font-weight: 700;
       color: var(--dark);
+      word-break: break-word;
+    }
+
+    @media (min-width: 768px) {
+      .profile-header h1 {
+        font-size: 1.5rem;
+      }
     }
 
     .skill-badge {
       display: inline-block;
       background: var(--primary-soft);
-      color: #065f46;
-      font-size: 0.78rem;
+      color: #047857;
+      font-size: 0.75rem;
       font-weight: 600;
-      padding: 0.3rem 0.8rem;
+      padding: 0.25rem 0.7rem;
       border-radius: 999px;
-      max-width: 100%;
       word-break: break-word;
+      border: 1px solid #a7f3d0;
     }
 
     .profile-bio {
       color: var(--muted);
-      font-size: 0.92rem;
-      margin-bottom: 1rem;
+      font-size: 0.88rem;
+      margin-bottom: 0.85rem;
     }
 
     .profile-meta {
       display: flex;
-      flex-wrap: wrap;
-      gap: 1.25rem;
+      flex-direction: column;
+      gap: 0.5rem;
       font-size: 0.82rem;
       color: var(--muted);
       padding-top: 0.85rem;
       border-top: 1px solid var(--border);
     }
 
-    .profile-meta strong {
-      color: var(--text);
+    @media (min-width: 640px) {
+      .profile-meta {
+        flex-direction: row;
+        flex-wrap: wrap;
+        gap: 1.25rem;
+      }
     }
 
+    .profile-meta strong {
+      color: var(--dark);
+    }
+
+    /* --- Dashboard Two-Column Grid --- */
     .dashboard-grid {
       display: grid;
-      grid-template-columns: 360px 1fr;
-      gap: 1.75rem;
+      grid-template-columns: 1fr;
+      gap: 1.5rem;
       align-items: start;
     }
 
-    @media (max-width: 860px) {
+    @media (min-width: 880px) {
       .dashboard-grid {
-        grid-template-columns: 1fr;
-      }
-      .topbar {
-        padding: 0.85rem 1rem;
+        grid-template-columns: 360px 1fr;
+        gap: 1.75rem;
       }
     }
 
+    /* --- Active Job Card (Left Column) --- */
     .active-card {
       background: var(--dark-card);
-      color: #fff;
-      border-radius: var(--radius);
-      padding: 1.6rem;
+      color: #ffffff;
+      border-radius: var(--radius-lg);
+      padding: 1.35rem;
       box-shadow: 0 10px 25px rgba(15, 23, 42, 0.15);
+    }
+
+    @media (min-width: 768px) {
+      .active-card {
+        padding: 1.6rem;
+      }
     }
 
     .active-pill {
@@ -219,35 +310,38 @@
       letter-spacing: 0.06em;
       padding: 0.25rem 0.65rem;
       border-radius: 999px;
-      margin-bottom: 0.9rem;
+      margin-bottom: 0.75rem;
     }
 
     .active-title {
-      font-size: 1.35rem;
+      font-size: 1.25rem;
       font-weight: 700;
       margin-bottom: 0.35rem;
+      word-break: break-word;
     }
 
     .active-location {
       color: #94a3b8;
-      font-size: 0.88rem;
-      margin-bottom: 1.15rem;
+      font-size: 0.84rem;
+      margin-bottom: 1rem;
       display: flex;
       align-items: center;
       gap: 0.35rem;
+      word-break: break-word;
     }
 
+    /* Customer Contact Info inside Active Card */
     .customer-contact-box {
       background: rgba(255, 255, 255, 0.08);
       border: 1px solid rgba(255, 255, 255, 0.12);
-      border-radius: 12px;
-      padding: 1rem;
-      margin-bottom: 1.25rem;
-      font-size: 0.88rem;
+      border-radius: var(--radius-md);
+      padding: 0.9rem;
+      margin-bottom: 1.15rem;
+      font-size: 0.85rem;
     }
 
     .customer-contact-box p {
-      margin-bottom: 0.3rem;
+      margin-bottom: 0.25rem;
       color: #cbd5e1;
     }
 
@@ -258,23 +352,23 @@
     .payout-box {
       background: rgba(255, 255, 255, 0.06);
       border: 1px solid rgba(255, 255, 255, 0.1);
-      border-radius: 12px;
-      padding: 0.9rem 1.1rem;
-      margin-bottom: 1.25rem;
+      border-radius: var(--radius-md);
+      padding: 0.85rem 1rem;
+      margin-bottom: 1.15rem;
       display: flex;
       justify-content: space-between;
       align-items: center;
     }
 
     .payout-label {
-      font-size: 0.78rem;
+      font-size: 0.75rem;
       color: #94a3b8;
       text-transform: uppercase;
       letter-spacing: 0.04em;
     }
 
     .payout-amount {
-      font-size: 1.5rem;
+      font-size: 1.4rem;
       font-weight: 700;
       color: #34d399;
     }
@@ -285,15 +379,16 @@
       justify-content: center;
       gap: 0.5rem;
       width: 100%;
+      min-height: 44px;
       background: var(--primary);
       color: #052e16;
       font-weight: 700;
       font-size: 0.92rem;
       text-decoration: none;
       padding: 0.85rem 1rem;
-      border-radius: 11px;
+      border-radius: var(--radius-md);
       transition: background 0.15s, transform 0.1s;
-      margin-bottom: 0.85rem;
+      margin-bottom: 0.75rem;
     }
 
     .btn-maps:hover {
@@ -304,16 +399,17 @@
     .status-controls {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 0.6rem;
+      gap: 0.5rem;
     }
 
     .btn-status {
+      min-height: 42px;
       background: rgba(255, 255, 255, 0.09);
       color: #e2e8f0;
       border: 1px solid rgba(255, 255, 255, 0.14);
-      padding: 0.6rem 0.75rem;
-      border-radius: 9px;
-      font-size: 0.8rem;
+      padding: 0.55rem 0.65rem;
+      border-radius: var(--radius-sm);
+      font-size: 0.78rem;
       font-weight: 600;
       cursor: pointer;
       transition: background 0.15s;
@@ -332,18 +428,20 @@
     .no-active-card {
       background: var(--surface);
       border: 1px dashed #cbd5e1;
-      border-radius: var(--radius);
-      padding: 2rem 1.5rem;
+      border-radius: var(--radius-lg);
+      padding: 2rem 1.25rem;
       text-align: center;
       color: var(--muted);
+      box-shadow: var(--shadow-sm);
     }
 
     .no-active-card h3 {
-      color: var(--text);
+      color: var(--dark);
       font-size: 1rem;
       margin-bottom: 0.35rem;
     }
 
+    /* --- Available Requests Feed (Right Column) --- */
     .feed-header {
       margin-bottom: 1rem;
       display: flex;
@@ -352,13 +450,13 @@
     }
 
     .feed-header h2 {
-      font-size: 1.25rem;
+      font-size: 1.2rem;
       font-weight: 700;
       color: var(--dark);
     }
 
     .feed-header p {
-      font-size: 0.88rem;
+      font-size: 0.82rem;
       color: var(--muted);
     }
 
@@ -371,18 +469,22 @@
     .task-card {
       background: var(--surface);
       border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 1.35rem 1.5rem;
+      border-radius: var(--radius-lg);
+      padding: 1.25rem;
       display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 1.25rem;
+      flex-direction: column;
+      gap: 1rem;
+      box-shadow: var(--shadow-card);
       transition: border-color 0.15s, box-shadow 0.15s;
     }
 
-    .task-card:hover {
-      border-color: #cbd5e1;
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04);
+    @media (min-width: 600px) {
+      .task-card {
+        flex-direction: row;
+        justify-content: space-between;
+        align-items: center;
+        padding: 1.35rem 1.5rem;
+      }
     }
 
     .task-info {
@@ -392,14 +494,14 @@
     .task-badges {
       display: flex;
       flex-wrap: wrap;
-      gap: 0.5rem;
-      margin-bottom: 0.5rem;
+      gap: 0.4rem;
+      margin-bottom: 0.45rem;
     }
 
     .badge {
       font-size: 0.72rem;
       font-weight: 600;
-      padding: 0.2rem 0.6rem;
+      padding: 0.2rem 0.55rem;
       border-radius: 6px;
       background: #f1f5f9;
       color: #475569;
@@ -416,50 +518,72 @@
     }
 
     .task-info h3 {
-      font-size: 1.08rem;
+      font-size: 1.05rem;
       font-weight: 700;
       color: var(--dark);
       margin-bottom: 0.25rem;
     }
 
     .task-desc {
-      font-size: 0.88rem;
+      font-size: 0.86rem;
       color: var(--muted);
-      margin-bottom: 0.6rem;
+      margin-bottom: 0.5rem;
+      line-height: 1.45;
     }
 
     .task-loc {
-      font-size: 0.8rem;
+      font-size: 0.78rem;
       color: #64748b;
     }
 
     .task-action {
-      text-align: right;
-      min-width: 120px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      padding-top: 0.5rem;
+      border-top: 1px solid var(--border);
+    }
+
+    @media (min-width: 600px) {
+      .task-action {
+        flex-direction: column;
+        align-items: flex-end;
+        justify-content: center;
+        padding-top: 0;
+        border-top: none;
+        min-width: 120px;
+      }
     }
 
     .task-price {
       font-size: 1.25rem;
       font-weight: 700;
       color: var(--dark);
-      margin-bottom: 0.6rem;
+    }
+
+    @media (min-width: 600px) {
+      .task-price {
+        margin-bottom: 0.5rem;
+      }
     }
 
     .btn-accept {
+      min-height: 40px;
       background: var(--dark);
-      color: #fff;
+      color: #ffffff;
       border: none;
-      padding: 0.65rem 1.15rem;
-      border-radius: 10px;
+      padding: 0.65rem 1.2rem;
+      border-radius: var(--radius-sm);
       font-size: 0.85rem;
       font-weight: 600;
       cursor: pointer;
-      transition: background 0.15s;
-      width: 100%;
+      transition: background 0.15s, transform 0.1s;
     }
 
     .btn-accept:hover {
       background: var(--primary-dark);
+      transform: translateY(-1px);
     }
 
     .btn-accept:disabled {
@@ -470,26 +594,30 @@
     .empty-feed {
       background: var(--surface);
       border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 2.5rem 1.5rem;
+      border-radius: var(--radius-lg);
+      padding: 2.5rem 1.25rem;
       text-align: center;
       color: var(--muted);
+      box-shadow: var(--shadow-sm);
     }
   </style>
 </head>
 <body>
 
+  <!-- Top Navigation (Mobile-Protected) -->
   <header class="topbar">
-    <div class="brand-group">
-      <a href="{{ url_for('worker_dashboard') }}" class="brand">✦ Taskmate Pro</a>
-      <span class="portal-pill">Worker Dashboard</span>
-    </div>
-    <div class="nav-actions">
-      <div class="gps-status">
-        <span class="pulse-dot" id="gps-dot"></span>
-        <span id="gps-label">Syncing GPS...</span>
+    <div class="topbar-inner">
+      <div class="brand-group">
+        <a href="{{ url_for('worker_dashboard') }}" class="brand">✦ Taskmate Pro</a>
+        <span class="portal-pill">Worker Portal</span>
       </div>
-      <a href="{{ url_for('logout') }}" class="logout-link">Logout</a>
+      <div class="nav-actions">
+        <div class="gps-status">
+          <span class="pulse-dot" id="gps-dot"></span>
+          <span id="gps-label">GPS Active</span>
+        </div>
+        <a href="{{ url_for('logout') }}" class="logout-link">Logout</a>
+      </div>
     </div>
   </header>
 
@@ -502,23 +630,29 @@
       {% endif %}
     {% endwith %}
 
+    <!-- Worker Profile Overview Card -->
     <section class="profile-card">
       <div class="profile-main">
         <div class="profile-header">
-          <h1>Welcome, {{ worker.name }}</h1>
-          <span class="skill-badge">{{ worker.skills }}</span>
+          <h1>Welcome, {{ worker.name or 'Partner' }}</h1>
+          {% if worker.skills %}
+            <span class="skill-badge">{{ worker.skills }}</span>
+          {% endif %}
         </div>
-        <p class="profile-bio">{{ worker.description }}</p>
+        {% if worker.description and worker.description != "No service bio provided." %}
+          <p class="profile-bio">{{ worker.description }}</p>
+        {% endif %}
         <div class="profile-meta">
           <span><strong>Account ID:</strong> {{ session.get('user', 'Verified Partner') }}</span>
           <span><strong>Role:</strong> Verified Service Partner</span>
-          <span><strong>Current Status:</strong> <span id="current-status-text">{{ current_status }}</span></span>
+          <span><strong>Current Status:</strong> <span id="current-status-text" style="color:#059669; font-weight:600;">{{ current_status }}</span></span>
         </div>
       </div>
     </section>
 
     <div class="dashboard-grid">
 
+      <!-- Left Column: Active Job & Instant Route Assignment -->
       <aside>
         {% if active_job %}
           <div class="active-card">
@@ -527,19 +661,20 @@
             <p class="active-location">📍 {{ active_job.location or 'Exact Customer GPS Pin' }}</p>
 
             <!-- Customer Contact Information Card -->
-            {% if customer_contact %}
+            {% set contact_info = customer_contact or customer_contact_info %}
+            {% if contact_info %}
               <div class="customer-contact-box">
-                <p style="color: #34d399; font-weight: 600; margin-bottom: 0.4rem;">👤 Customer Details</p>
-                <p><strong>Name:</strong> {{ customer_contact.name }}</p>
-                <p><strong>Phone:</strong> <a href="tel:{{ customer_contact.phone }}" style="color: #6ee7b7; text-decoration: none;">{{ customer_contact.phone }}</a></p>
-                <p><strong>Email:</strong> {{ customer_contact.email }}</p>
+                <p style="color: #34d399; font-weight: 600; margin-bottom: 0.35rem;">👤 Customer Details</p>
+                <p><strong>Name:</strong> {{ contact_info.name }}</p>
+                <p><strong>Phone:</strong> <a href="tel:{{ contact_info.phone }}" style="color: #6ee7b7; text-decoration: none; font-weight: 600;">{{ contact_info.phone }}</a></p>
+                <p><strong>Email:</strong> {{ contact_info.email }}</p>
               </div>
             {% endif %}
 
             <div class="payout-box">
               <div>
                 <div class="payout-label">Total Payout</div>
-                <div style="font-size: 0.78rem; color: #cbd5e1;">Direct Earnings</div>
+                <div style="font-size: 0.75rem; color: #cbd5e1;">Direct Earnings</div>
               </div>
               <div class="payout-amount">₹{{ active_job.budget }}</div>
             </div>
@@ -572,11 +707,14 @@
         {% else %}
           <div class="no-active-card">
             <h3>No Active Assignment</h3>
-            <p style="font-size: 0.85rem;">Accept a nearby customer request from the list to start navigation.</p>
+            <p style="font-size: 0.85rem; line-height: 1.45; margin-top: 0.25rem;">
+              Accept a nearby customer request from the list to start navigation.
+            </p>
           </div>
         {% endif %}
       </aside>
 
+      <!-- Right Column: Available Nearby Requests -->
       <section>
         <div class="feed-header">
           <div>
@@ -614,7 +752,7 @@
           </div>
         {% else %}
           <div class="empty-feed">
-            <h3 style="color: var(--text); margin-bottom: 0.35rem;">No Pending Requests Right Now</h3>
+            <h3 style="color: var(--dark); margin-bottom: 0.35rem;">No Pending Requests Right Now</h3>
             <p style="font-size: 0.88rem;">New customer requests matching your skills will appear here automatically.</p>
           </div>
         {% endif %}
@@ -629,7 +767,7 @@
       const gpsDot = document.getElementById('gps-dot');
 
       if (!navigator.geolocation) {
-        if (gpsLabel) gpsLabel.innerText = 'GPS Unsupported';
+        if (gpsLabel) gpsLabel.innerText = 'GPS Off';
         return;
       }
 
@@ -645,10 +783,9 @@
               body: JSON.stringify({ lat: lat, lon: lon })
             });
             const data = await response.json();
-            console.log('Location synced:', data);
 
             if (response.ok && gpsLabel) {
-              gpsLabel.innerText = 'Active GPS Locked';
+              gpsLabel.innerText = 'GPS Active';
               if (gpsDot) gpsDot.style.background = '#10b981';
             }
           } catch (err) {
@@ -657,7 +794,7 @@
         },
         (err) => {
           console.warn('GPS permission warning:', err.message);
-          if (gpsLabel) gpsLabel.innerText = 'Active Session';
+          if (gpsLabel) gpsLabel.innerText = 'GPS Idle';
         },
         {
           enableHighAccuracy: true,

@@ -2,12 +2,179 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{% block title %}Taskmate AI{% endblock %}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <style>
+  :root {
+    /* --- Elevated Nordic Emerald Design System --- */
+    --bg-base: #f8fafc;
+    /* Soft ambient mesh gradient that eliminates flat white */
+    --bg-canvas: radial-gradient(at 10% 10%, rgba(16, 185, 129, 0.05) 0px, transparent 45%),
+                 radial-gradient(at 90% 90%, rgba(15, 23, 42, 0.04) 0px, transparent 50%),
+                 #f8fafc;
+    
+    --surface: #ffffff;
+    --surface-elevated: #ffffff;
+    --dark: #0f172a;            /* Deep obsidian slate */
+    --primary: #10b981;         /* Vivid Emerald */
+    --primary-hover: #059669;
+    --primary-soft: #ecfdf5;    /* Fresh mint tint for badges/chips */
+    --text: #0f172a;            /* High-contrast readable dark */
+    --muted: #64748b;           /* Slate gray for secondary details */
+    --border: #e2e8f0;          /* Refined structure borders */
+    --border-hover: #cbd5e1;
+    --radius-sm: 8px;
+    --radius-md: 12px;
+    --radius-lg: 16px;
+    --shadow-card: 0 4px 20px -2px rgba(15, 23, 42, 0.06), 0 1px 3px rgba(0, 0, 0, 0.03);
+  }
+
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg-canvas);
+    background-attachment: fixed;
+    color: var(--text);
+    line-height: 1.6;
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+  }
+
+  /* Frosted Glass Floating Navbar */
+  nav {
+    background: rgba(15, 23, 42, 0.94);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    color: #ffffff;
+    padding: 0.9rem 1.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: sticky;
+    top: 0;
+    z-index: 1000;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: 0 4px 16px rgba(15, 23, 42, 0.12);
+  }
+
+  .brand {
+    font-weight: 700;
+    font-size: 1.15rem;
+    color: #ffffff;
+    text-decoration: none;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+
+  .brand span, .brand b {
+    color: #34d399; /* Mint highlight */
+  }
+
+  .nav-note {
+    display: none;
+    color: #94a3b8;
+    font-size: 0.85rem;
+    font-weight: 500;
+  }
+
+  @media (min-width: 768px) {
+    nav {
+      padding: 1rem 2.5rem;
+    }
+    .nav-note {
+      display: block;
+    }
+  }
+
+  .nav-links {
+    display: flex;
+    align-items: center;
+    gap: 1.25rem;
+    font-size: 0.9rem;
+    font-weight: 600;
+  }
+
+  .nav-links a {
+    color: #cbd5e1;
+    text-decoration: none;
+    transition: color 0.15s;
+  }
+
+  .nav-links a:hover {
+    color: #34d399;
+  }
+
+  .nav-user {
+    color: #94a3b8;
+    font-size: 0.85rem;
+    display: none;
+  }
+
+  @media (min-width: 640px) {
+    .nav-user {
+      display: inline;
+    }
+  }
+
+  .btn-logout {
+    color: #f87171 !important;
+  }
+
+  /* Main Viewport Container */
+  main {
+    flex: 1;
+    width: 100%;
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 2rem 1.25rem;
+  }
+
+  @media (min-width: 768px) {
+    main {
+      padding: 3rem 2rem;
+    }
+  }
+
+  /* Cards pop out against the tinted canvas */
+  .card, .auth-container, .task-form, .analysis-card, .profile-card, .task-card {
+    background: var(--surface) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: var(--radius-lg) !important;
+    box-shadow: var(--shadow-card) !important;
+  }
+
+  /* Footer */
+  footer {
+    background: #0f172a;
+    color: #94a3b8;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    margin-top: auto;
+    text-align: center;
+    padding: 1.75rem 1rem;
+    font-size: 0.85rem;
+  }
+
+  footer a {
+    color: #cbd5e1;
+    text-decoration: none;
+    transition: color 0.15s;
+  }
+
+  footer a:hover {
+    color: #34d399;
+  }
+</style>
 </head>
 <body>
   <nav>
@@ -18,12 +185,12 @@
     
     <div class="nav-links">
       <a href="{{ url_for('home') }}">Home</a>
-      {% if current_user.is_authenticated %}
-        <span>{{ current_user.email }}</span>
-        <a href="{{ url_for('logout') }}">Logout</a>
+      {% if session.get('user') %}
+        <span class="nav-user">{{ session.get('user') }}</span>
+        <a href="{{ url_for('logout') }}" class="btn-logout">Logout</a>
       {% else %}
-        <a href="/login">Login</a>
-        <a href="/register">Register</a>
+        <a href="{{ url_for('login') }}">Login</a>
+        <a href="{{ url_for('register') }}">Register</a>
       {% endif %}
     </div>
   </nav>
@@ -31,11 +198,13 @@
   <main>
     {% block content %}{% endblock %}
   </main>
-  <script src="{{ url_for('static', filename='script.js') }}"></script>
-  <footer style="margin-top: 40px; text-align: center; padding: 20px; font-size: 14px; color: #666;">
-    <a href="{{ url_for('privacy') }}">Privacy Policy</a> | 
-    <a href="{{ url_for('terms') }}">Terms & Conditions</a> | 
+
+  <footer>
+    <a href="{{ url_for('privacy') }}">Privacy Policy</a> &nbsp;|&nbsp; 
+    <a href="{{ url_for('terms') }}">Terms & Conditions</a> &nbsp;|&nbsp; 
     <a href="{{ url_for('refund_policy') }}">Refund Policy</a>
-</footer>
+  </footer>
+
+  <script src="{{ url_for('static', filename='script.js') }}"></script>
 </body>
 </html>

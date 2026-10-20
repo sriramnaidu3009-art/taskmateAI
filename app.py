@@ -1305,7 +1305,9 @@ def chat():
         
         FOUNDER & CREATOR INFORMATION:
         - Founder / Creator: Sriram
-        - About the Founder: Taskmate was envisioned and built by Sriram to empower local service providers and simplify home assistance for everyday users. He is a 17-year-old student and self-taught programmer who developed TaskmateAI single-handedly.
+        - About the Founder: Taskmate was envisioned and built by Sriram to empower local service providers and simplify home assistance for everyday users.
+          He is a 17-year-old student and self-taught programmer who developed TaskmateAI single-handedly. he is currently TKR college of engineering and technology, Hyderabad, India.
+          he is a student of computer science and data science. he is passionate about AI, web development, and creating solutions that make a difference in people's lives.
         - Vision: To empower local service providers and bridge the gap between skilled workers and those in need of their services.
         
         PLATFORM DETAILS:
