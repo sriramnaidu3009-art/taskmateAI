@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 import firebase_admin
 import razorpay
 import requests
+from authlib.integrations.flask_client import OAuth
 from dotenv import load_dotenv
 from firebase_admin import credentials, firestore
 from flask import (
@@ -33,8 +34,8 @@ from sendgrid import SendGridAPIClient
 from sendgrid.helpers.mail import Mail
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError, OperationalError
+from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash, generate_password_hash
-from authlib.integrations.flask_client import OAuth
 
 # 1. Load Environment Variables
 load_dotenv()
@@ -42,6 +43,9 @@ load_dotenv()
 # 2. Initialize Flask App & Configurations
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "taskmate-demo-change-this-before-deploying")
+
+# Ensure correct HTTPS redirect URIs behind Render/Cloud reverse proxies for Google OAuth
+app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
 
 # Groq AI Setup
 groq_api_key = os.getenv("GROQ_API_KEY")
@@ -186,83 +190,17 @@ with app.app_context():
         print(f"[DATABASE MIGRATION NOTICE]: {e}")
 
 
-# --- Flask-Login User Loader ---
-# Initialize Authlib OAuth
+# 8. Initialize Authlib Google OAuth
 oauth = OAuth(app)
 google = oauth.register(
-    name='google',
-    client_id=os.getenv('GOOGLE_CLIENT_ID'),
-    client_secret=os.getenv('GOOGLE_CLIENT_SECRET'),
-    server_metadata_url='https://accounts.google.com/.well-known/openid-configuration',
-    client_kwargs={
-        'scope': 'openid email profile'
-    }
+    name="google",
+    client_id=os.getenv("GOOGLE_CLIENT_ID"),
+    client_secret=os.getenv("GOOGLE_CLIENT_SECRET"),
+    server_metadata_url="https://accounts.google.com/.well-known/openid-configuration",
+    client_kwargs={"scope": "openid email profile"},
 )
-@app.route('/login/google')
-def google_login():
-    session["oauth_role"] = "user"
-    redirect_uri = url_for('google_callback', _external=True)
-    return google.authorize_redirect(redirect_uri)
 
 
-@app.route('/worker/login/google')
-def worker_google_login():
-    session["oauth_role"] = "worker"
-    redirect_uri = url_for('google_callback', _external=True)
-    return google.authorize_redirect(redirect_uri)
-
-
-@app.route('/login/google/callback')
-def google_callback():
-    try:
-        token = google.authorize_access_token()
-        user_info = token.get('userinfo')
-        
-        if not user_info:
-            flash("Google authentication failed.", "error")
-            return redirect(url_for('login'))
-
-        email = user_info.get('email')
-        name = user_info.get('name', 'Taskmate User')
-        target_role = session.pop("oauth_role", "user")
-
-        # Check if user already exists in PostgreSQL
-        user = User.query.filter(User.email.ilike(email)).first()
-
-        if not user:
-            # AUTO-REGISTER: Create a new account if they don't exist yet
-            dummy_password = generate_password_hash(os.urandom(24).hex())
-            user = User(
-                name=name,
-                email=email,
-                password=dummy_password,
-                role=target_role,
-                skills="General Service" if target_role == "worker" else None
-            )
-            db.session.add(user)
-            db.session.commit()
-            flash(f"Account created successfully! Welcome, {user.name}.", "success")
-        else:
-            # LOGIN: User already exists
-            if target_role == "worker" and user.role != "worker":
-                user.role = "worker"
-                db.session.commit()
-            flash(f"Welcome back, {user.name}!", "success")
-
-        # Log user into session
-        session["user"] = user.email
-        session["role"] = user.role
-
-        # Redirect to respective dashboard/home
-        if user.role == "worker":
-            return redirect(url_for("worker_dashboard"))
-        return redirect(url_for("home"))
-
-    except Exception as e:
-        db.session.rollback()
-        print(f"[GOOGLE OAUTH ERROR]: {e}")
-        flash("An error occurred during Google authentication.", "error")
-        return redirect(url_for('login'))
 @login_manager.user_loader
 def load_user(user_id):
     try:
@@ -363,6 +301,30 @@ KEYWORDS = {
 
 
 # --- Helper Functions ---
+def finalize_customer_login(user: User):
+    """Logs in the customer, links any pre-submitted task to their account, and redirects to /matches if pending."""
+    session["user"] = user.email or user.phone
+    session["role"] = "user"
+
+    # If the customer submitted a task right before logging in, attach their customer_id to that task in PostgreSQL
+    pending_task_id = session.get("task_id") or session.get("task", {}).get("id")
+    if pending_task_id and user.id:
+        try:
+            db_task = db.session.get(Task, int(pending_task_id))
+            if db_task and not db_task.customer_id:
+                db_task.customer_id = user.id
+                db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            print(f"[TASK CUSTOMER LINK NOTICE]: {e}")
+
+    # If they clicked "Find my taskmate" before logging in, take them straight to /matches!
+    if session.pop("pending_match_redirect", False) and session.get("analysis"):
+        return redirect(url_for("matches"))
+
+    return redirect(url_for("home"))
+
+
 def build_worker_dict(db_worker: User, rate: float = 450.0, distance: float = 1.2) -> dict:
     """Formats a database User object into a complete frontend worker dictionary."""
     name_str = (db_worker.name or "Verified Partner").strip()
@@ -526,24 +488,25 @@ def analyze_task(title: str, description: str) -> dict:
     """
 
     if client:
-        try:
-            response = client.chat.completions.create(
-                model="openai/gpt-oss-120b",
-                messages=[
-                    {"role": "system", "content": "You are a JSON-only response generator for task analysis."},
-                    {"role": "user", "content": prompt},
-                ],
-                response_format={"type": "json_object"},
-                temperature=0.1,
-            )
-            clean_json = response.choices[0].message.content.strip()
-            parsed = json.loads(clean_json)
-            if isinstance(parsed, dict) and "category" in parsed:
-                if not parsed.get("skills"):
-                    parsed["skills"] = [parsed["category"], "General Service"]
-                return parsed
-        except Exception as e:
-            print(f"[GROQ API FALLBACK ACTIVE]: {e}")
+        for model_name in ("openai/gpt-oss-120b", "llama-3.1-8b-instant"):
+            try:
+                response = client.chat.completions.create(
+                    model=model_name,
+                    messages=[
+                        {"role": "system", "content": "You are a JSON-only response generator for task analysis."},
+                        {"role": "user", "content": prompt},
+                    ],
+                    response_format={"type": "json_object"},
+                    temperature=0.1,
+                )
+                clean_json = response.choices[0].message.content.strip()
+                parsed = json.loads(clean_json)
+                if isinstance(parsed, dict) and "category" in parsed:
+                    if not parsed.get("skills"):
+                        parsed["skills"] = [parsed["category"], "General Service"]
+                    return parsed
+            except Exception as e:
+                print(f"[GROQ ANALYZE NOTICE ({model_name})]: {e}")
 
     text_content = f"{title} {description}".lower()
     category = next(
@@ -692,9 +655,73 @@ def disburse_worker_payout(worker=None, task_id=1, base_amount=None):
         return {"status": "error", "message": str(e)}
 
 
+# --- Google OAuth Routes ---
+@app.route("/login/google")
+def google_login():
+    session["oauth_role"] = "user"
+    redirect_uri = url_for("google_callback", _external=True)
+    return google.authorize_redirect(redirect_uri)
+
+
+@app.route("/worker/login/google")
+def worker_google_login():
+    session["oauth_role"] = "worker"
+    redirect_uri = url_for("google_callback", _external=True)
+    return google.authorize_redirect(redirect_uri)
+
+
+@app.route("/login/google/callback")
+def google_callback():
+    try:
+        token = google.authorize_access_token()
+        user_info = token.get("userinfo")
+
+        if not user_info:
+            flash("Google authentication failed.", "error")
+            return redirect(url_for("login"))
+
+        email = user_info.get("email")
+        name = user_info.get("name", "Taskmate User")
+        target_role = session.pop("oauth_role", "user")
+
+        user = User.query.filter(User.email.ilike(email)).first()
+
+        if not user:
+            dummy_password = generate_password_hash(os.urandom(24).hex())
+            user = User(
+                name=name,
+                email=email,
+                password=dummy_password,
+                role=target_role,
+                skills="General Service" if target_role == "worker" else None,
+            )
+            db.session.add(user)
+            db.session.commit()
+            flash(f"Account created successfully! Welcome, {user.name}.", "success")
+        else:
+            if target_role == "worker" and user.role != "worker":
+                user.role = "worker"
+                if not user.skills:
+                    user.skills = "General Service"
+                db.session.commit()
+            flash(f"Welcome back, {user.name}!", "success")
+
+        if target_role == "worker":
+            session["user"] = user.email
+            session["role"] = "worker"
+            return redirect(url_for("worker_dashboard"))
+
+        # Route customer to /matches (if they just submitted a task) or /home
+        return finalize_customer_login(user)
+
+    except Exception as e:
+        db.session.rollback()
+        print(f"[GOOGLE OAUTH ERROR]: {e}")
+        flash("An error occurred during Google authentication.", "error")
+        return redirect(url_for("login"))
+
+
 # --- Application Routes ---
-
-
 @app.route("/", methods=["GET", "POST"])
 def home():
     if request.method == "POST":
@@ -743,6 +770,13 @@ def home():
 
         session["task"] = task_data
         session["analysis"] = analysis
+
+        # If user is not logged in yet, remember that they want to go to /matches right after login
+        if not session.get("user"):
+            session["pending_match_redirect"] = True
+            flash("Please sign in to view your matches and dispatch your worker.", "info")
+            return redirect(url_for("login"))
+
         return redirect(url_for("matches"))
     return render_template("home.html", razorpay_key=RAZORPAY_KEY_ID)
 
@@ -780,6 +814,7 @@ def submit_task():
 @app.route("/matches")
 def matches():
     if not session.get("user"):
+        session["pending_match_redirect"] = True
         flash("Please log in to view matches.", "error")
         return redirect(url_for("login"))
 
@@ -872,7 +907,7 @@ def api_task_status_check():
 
             session["status"] = current_stage
 
-            # Redirect directly to the unified /tracker page (which now includes checkout)
+            # Redirect directly to the unified /tracker page (which includes checkout)
             return jsonify(
                 {
                     "status": "accepted" if task.status in ACTIVE_TASK_STATUSES else task.status,
@@ -888,6 +923,7 @@ def api_task_status_check():
         print(f"[STATUS CHECK ERROR]: {e}")
 
     return jsonify({"status": "pending"})
+
 
 @app.route("/api/worker/accept-task/<int:task_id>", methods=["POST"])
 def worker_accept_task(task_id: int):
@@ -1066,7 +1102,7 @@ def tracker():
         razorpay_key_id=RAZORPAY_KEY_ID,
     )
 
-    
+
 @app.route("/api/create-order", methods=["POST"])
 def create_payment_order():
     data = request.get_json() or {}
@@ -1282,24 +1318,28 @@ def chat():
         - Keep answers concise, helpful, and friendly.
         """
 
-        try:
-            response = client.chat.completions.create(
-                model="openai/gpt-oss-120b",
-                messages=[
-                    {"role": "system", "content": system_instructions},
-                    {"role": "user", "content": prompt},
-                ],
-                temperature=0.7,
-            )
-            return jsonify({"response": response.choices[0].message.content})
+        last_err = None
+        for model_name in ("openai/gpt-oss-120b", "llama-3.1-8b-instant"):
+            try:
+                response = client.chat.completions.create(
+                    model=model_name,
+                    messages=[
+                        {"role": "system", "content": system_instructions},
+                        {"role": "user", "content": prompt},
+                    ],
+                    temperature=0.7,
+                )
+                return jsonify({"response": response.choices[0].message.content})
+            except Exception as e:
+                last_err = e
+                print(f"[GROQ CHAT NOTICE ({model_name})]: {e}")
 
-        except Exception as e:
-            print(f"[GROQ CHAT ERROR DETAILS]: {e}")
-            return jsonify(
-                {
-                    "response": "I'm having trouble connecting to Groq AI right now. Check your terminal logs for details!"
-                }
-            )
+        print(f"[GROQ CHAT ERROR DETAILS]: {last_err}")
+        return jsonify(
+            {
+                "response": "I'm having trouble connecting to Groq AI right now. Check your terminal logs for details!"
+            }
+        )
 
     except Exception as e:
         print(f"[CHAT ROUTE CRASH]: {e}")
@@ -1321,6 +1361,7 @@ def api_test_db():
 @app.route("/register", methods=["GET", "POST"])
 def register():
     if request.method == "POST":
+        username = (request.form.get("username") or request.form.get("name") or "Customer").strip()
         email = request.form.get("email", "").strip()
         phone = request.form.get("phone", "").strip()
         password = request.form.get("password", "").strip()
@@ -1358,6 +1399,7 @@ def register():
             send_realtime_email(email_val, otp)
 
         session["pending_user"] = {
+            "name": username,
             "email": email_val,
             "phone": clean_phone,
             "password": generate_password_hash(password),
@@ -1392,10 +1434,10 @@ def verify():
             filters.append(User.phone == phone_val)
 
         try:
-            existing_user = User.query.filter(db.or_(*filters)).first() if filters else None
+            user = User.query.filter(db.or_(*filters)).first() if filters else None
 
-            if not existing_user:
-                new_user = User(
+            if not user:
+                user = User(
                     name=pending_user.get("name") or "User",
                     email=email_val,
                     phone=phone_val,
@@ -1404,7 +1446,7 @@ def verify():
                     skills=pending_user.get("skills") or None,
                     description=pending_user.get("description") or None,
                 )
-                db.session.add(new_user)
+                db.session.add(user)
                 db.session.commit()
         except Exception as e:
             db.session.rollback()
@@ -1412,14 +1454,16 @@ def verify():
             flash("Error saving account. Please try logging in.", "error")
             return redirect(url_for("login"))
 
-        session["user"] = email_val or phone_val
-        session["role"] = pending_user.get("role", "user")
+        target_role = pending_user.get("role", "user")
         session.pop("pending_user", None)
 
         flash("Account verified and saved successfully!", "success")
-        if session["role"] == "worker":
+        if target_role == "worker":
+            session["user"] = email_val or phone_val
+            session["role"] = "worker"
             return redirect(url_for("worker_dashboard"))
-        return redirect(url_for("login"))
+
+        return finalize_customer_login(user)
 
     return render_template("verify.html")
 
@@ -1437,10 +1481,8 @@ def login():
         elif not check_user_password(user.password, password):
             flash("Incorrect password", "error")
         else:
-            session["user"] = user.email or user.phone
-            session["role"] = user.role
             flash("Logged in successfully!", "success")
-            return redirect(url_for("home"))
+            return finalize_customer_login(user)
 
     return render_template("login.html")
 
@@ -1608,6 +1650,7 @@ def worker_dashboard():
         tasks=pending_tasks,
         active_job=active_job,
         current_status=current_status,
+        customer_contact=customer_contact_info,
         customer_contact_info=customer_contact_info,
     )
 
